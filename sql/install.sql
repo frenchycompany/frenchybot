@@ -1,16 +1,50 @@
 -- ============================================
--- ORCA CHATBOT - Installation Complète
--- Pour exécuter sur le serveur: mysql -u root -p orca < chatbot_complete_install.sql
+-- FRENCHYBOT - Installation Complète Multi-Tenant
+-- mysql -u root -p frenchybot < sql/install.sql
 -- ============================================
 
--- Assurer l'encodage UTF8MB4 pour les emojis
 SET NAMES utf8mb4;
+
+-- ============================================
+-- TABLE: Chatbots (table maîtresse multi-tenant)
+-- ============================================
+CREATE TABLE IF NOT EXISTS chatbots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    domain VARCHAR(255) DEFAULT NULL,
+    token VARCHAR(64) NOT NULL,
+    secret_key VARCHAR(64) NOT NULL,
+    -- Config apparence
+    welcome_message TEXT DEFAULT NULL,
+    primary_color VARCHAR(7) DEFAULT '#1a5653',
+    auto_popup TINYINT(1) DEFAULT 1,
+    popup_delay INT DEFAULT 20,
+    logo_url VARCHAR(255) DEFAULT NULL,
+    -- Config IA
+    ai_provider ENUM('none','openai','anthropic') DEFAULT 'none',
+    ai_api_key VARCHAR(255) DEFAULT NULL,
+    ai_model VARCHAR(50) DEFAULT 'gpt-4',
+    -- Config webhook
+    webhook_enabled TINYINT(1) DEFAULT 0,
+    webhook_url VARCHAR(500) DEFAULT NULL,
+    email_notifications TINYINT(1) DEFAULT 1,
+    notification_email VARCHAR(255) DEFAULT NULL,
+    -- Statut
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_token (token),
+    INDEX idx_active (is_active),
+    INDEX idx_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
 -- TABLE: Conversations
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_conversations (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT NOT NULL,
     session_id VARCHAR(255) NOT NULL,
     ip_address VARCHAR(45) DEFAULT NULL,
     user_agent VARCHAR(500) DEFAULT NULL,
@@ -27,13 +61,15 @@ CREATE TABLE IF NOT EXISTS chatbot_conversations (
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_activity DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     ended_at DATETIME DEFAULT NULL,
-    
+
+    INDEX idx_chatbot (chatbot_id),
     INDEX idx_session_active (session_id, is_active),
     INDEX idx_started (started_at),
     INDEX idx_lead (lead_id),
     INDEX idx_ab_test (ab_test_id, ab_variant),
     INDEX idx_is_active (is_active),
-    INDEX idx_page_source (page_source)
+    INDEX idx_page_source (page_source),
+    FOREIGN KEY (chatbot_id) REFERENCES chatbots(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -48,7 +84,7 @@ CREATE TABLE IF NOT EXISTS chatbot_messages (
     buttons JSON DEFAULT NULL,
     data_collected JSON DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     INDEX idx_conversation (conversation_id),
     INDEX idx_type (type),
     INDEX idx_intention (intention_detected),
@@ -61,7 +97,8 @@ CREATE TABLE IF NOT EXISTS chatbot_messages (
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_intentions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    intention_key VARCHAR(100) NOT NULL UNIQUE,
+    chatbot_id INT NOT NULL,
+    intention_key VARCHAR(100) NOT NULL,
     keywords TEXT NOT NULL,
     response_text TEXT NOT NULL,
     action VARCHAR(50) DEFAULT NULL,
@@ -69,10 +106,12 @@ CREATE TABLE IF NOT EXISTS chatbot_intentions (
     is_active TINYINT(1) DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
+
+    INDEX idx_chatbot (chatbot_id),
     INDEX idx_active (is_active),
     INDEX idx_priority (priority),
-    INDEX idx_intention_key (intention_key)
+    INDEX idx_chatbot_key (chatbot_id, intention_key),
+    FOREIGN KEY (chatbot_id) REFERENCES chatbots(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -80,6 +119,7 @@ CREATE TABLE IF NOT EXISTS chatbot_intentions (
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_ab_tests (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT NOT NULL,
     name VARCHAR(255) NOT NULL,
     test_type VARCHAR(50) NOT NULL,
     variant_a_value TEXT NOT NULL,
@@ -87,9 +127,40 @@ CREATE TABLE IF NOT EXISTS chatbot_ab_tests (
     status ENUM('active', 'completed', 'paused') DEFAULT 'active',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     ended_at DATETIME DEFAULT NULL,
-    
+
+    INDEX idx_chatbot (chatbot_id),
     INDEX idx_status (status),
-    INDEX idx_type (test_type)
+    INDEX idx_type (test_type),
+    FOREIGN KEY (chatbot_id) REFERENCES chatbots(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABLE: Leads
+-- ============================================
+CREATE TABLE IF NOT EXISTS leads (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT DEFAULT NULL,
+    nom VARCHAR(100) DEFAULT NULL,
+    prenom VARCHAR(100) DEFAULT NULL,
+    email VARCHAR(255) DEFAULT NULL,
+    telephone VARCHAR(20) DEFAULT NULL,
+    departement VARCHAR(10) DEFAULT NULL,
+    surface_souhaitee VARCHAR(50) DEFAULT NULL,
+    budget_estime VARCHAR(50) DEFAULT NULL,
+    terrain_prevu TINYINT(1) DEFAULT 0,
+    type_demande VARCHAR(50) DEFAULT 'devis',
+    source VARCHAR(50) DEFAULT 'chatbot',
+    page_source VARCHAR(255) DEFAULT NULL,
+    ip_address VARCHAR(45) DEFAULT NULL,
+    notes TEXT DEFAULT NULL,
+    status ENUM('new','contacted','qualified','converted','lost') DEFAULT 'new',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX idx_chatbot (chatbot_id),
+    INDEX idx_status (status),
+    INDEX idx_created (created_at),
+    INDEX idx_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
@@ -97,6 +168,7 @@ CREATE TABLE IF NOT EXISTS chatbot_ab_tests (
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_followups (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT DEFAULT NULL,
     conversation_id INT NOT NULL,
     lead_data JSON DEFAULT NULL,
     followup_date DATETIME NOT NULL,
@@ -106,7 +178,8 @@ CREATE TABLE IF NOT EXISTS chatbot_followups (
     email_content TEXT DEFAULT NULL,
     sent_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
+    INDEX idx_chatbot (chatbot_id),
     INDEX idx_status_date (status, followup_date),
     INDEX idx_conversation (conversation_id),
     FOREIGN KEY (conversation_id) REFERENCES chatbot_conversations(id) ON DELETE CASCADE
@@ -117,6 +190,7 @@ CREATE TABLE IF NOT EXISTS chatbot_followups (
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_analytics (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT NOT NULL,
     date DATE NOT NULL,
     hour INT NOT NULL,
     conversations INT DEFAULT 0,
@@ -124,158 +198,51 @@ CREATE TABLE IF NOT EXISTS chatbot_analytics (
     leads_generated INT DEFAULT 0,
     avg_score DECIMAL(5,2) DEFAULT 0,
     avg_duration INT DEFAULT 0,
-    
-    UNIQUE KEY unique_date_hour (date, hour),
-    INDEX idx_date (date)
+
+    UNIQUE KEY unique_chatbot_date_hour (chatbot_id, date, hour),
+    INDEX idx_chatbot (chatbot_id),
+    INDEX idx_date (date),
+    FOREIGN KEY (chatbot_id) REFERENCES chatbots(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- TABLE: Patterns utilisateur (autocomplete)
+-- TABLE: Patterns utilisateur
 -- ============================================
 CREATE TABLE IF NOT EXISTS chatbot_user_patterns (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    chatbot_id INT DEFAULT NULL,
     pattern_type VARCHAR(50) NOT NULL,
     pattern_value VARCHAR(255) NOT NULL,
     frequency INT DEFAULT 1,
     last_used DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    UNIQUE KEY unique_pattern (pattern_type, pattern_value),
+
+    UNIQUE KEY unique_pattern (chatbot_id, pattern_type, pattern_value),
     INDEX idx_type_freq (pattern_type, frequency)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- TABLE: Webhooks/Intégrations (pour n8n, Zapier, etc.)
+-- TABLE: Utilisateurs admin
 -- ============================================
-CREATE TABLE IF NOT EXISTS chatbot_webhooks (
+CREATE TABLE IF NOT EXISTS admin_users (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    webhook_url VARCHAR(500) NOT NULL,
-    webhook_type ENUM('n8n', 'zapier', 'custom') DEFAULT 'custom',
-    event_type ENUM('lead_created', 'conversation_started', 'conversation_ended', 'all') DEFAULT 'lead_created',
+    username VARCHAR(50) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin','manager') DEFAULT 'manager',
     is_active TINYINT(1) DEFAULT 1,
-    headers JSON DEFAULT NULL,
-    last_triggered DATETIME DEFAULT NULL,
-    last_response TEXT DEFAULT NULL,
+    last_login DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    INDEX idx_active (is_active),
-    INDEX idx_event (event_type)
+
+    UNIQUE KEY uk_username (username),
+    UNIQUE KEY uk_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================
--- INSERTIONS: Intentions par défaut
--- ============================================
-INSERT INTO chatbot_intentions (intention_key, keywords, response_text, action, priority, is_active) VALUES
--- Intentions générales
-('prix', 'prix,tarif,combien,coute,cher,budget,euros', '💰 Nos maisons sont personnalisables et le prix dépend de vos choix (surface, finitions...). Pour une estimation précise, pouvez-vous me dire :
-
-1️⃣ Quelle surface souhaitez-vous ?
-2️⃣ Dans quel département ?
-3️⃣ Avez-vous déjà un terrain ?', 'collect_info', 10, 1),
-
-('terrain', 'terrain,parcelle,trouver,tachercher,terrain a vendre', '🌿 Je peux vous aider à trouver un terrain ! Pour vous proposer les meilleures offres, j\'ai besoin de quelques infos. Commençons par votre département.', 'collect_info', 10, 1),
-
-('modele', 'modele,maison,coquelicot,tulipe,hibiscus,vour,tarif maison,catalogue', '🏠 Excellente idée ! Nous avons plusieurs modèles qui pourraient vous correspondre. Pour vous orienter vers les meilleures options, quel est votre budget approximatif ?', 'collect_info', 10, 1),
-
-('devis', 'devis,estimation,prix personnalise,combien pour moi', '📋 Je vais vous préparer un devis personnalisé ! Cela prend seulement 2 minutes. Quel est votre département de construction ?', 'start_qualification', 15, 1),
-
-('rdv', 'rendez-vous,rdv,rencontrer,conseiller,visite,agence', '📅 Je vais vous mettre en relation avec un conseiller. Pour qu\'il puisse préparer notre échange, pouvez-vous me donner votre département et un numéro de téléphone ?', 'create_lead_priority', 15, 1),
-
-('contact', 'telephone,contact,email,joindre,appeler', '📞 Vous pouvez nous contacter au 03 44 00 00 00 (lun-ven 9h-18h). Ou laissez-moi vos coordonnées, un conseiller vous rappellera sous 24h !', 'create_lead', 10, 1),
-
-('salutation', 'bonjour,bonsoir,hey,salut,coucou,hello,bonjour!', 'Bonjour ! 👋 Je suis l\'assistant virtuel ORCA. Je peux vous aider à :
-
-• 📋 Obtenir un devis personnalisé
-• 🏠 Découvrir nos modèles
-• 🌿 Trouver un terrain
-• 📅 Prendre rendez-vous
-
-Que souhaitez-vous faire ?', NULL, 5, 1),
-
-('au_revoir', 'au revoir,bye,merci,ciao,a plus,bonne journee', 'Au revoir ! 👋 N\'hésitez pas à revenir si vous avez d\'autres questions. Bonne journée !', 'close', 5, 1),
-
-('remerciement', 'merci,merci beaucoup,top,super,genial,parfait', 'Je vous en prie ! 😊 C\'est un plaisir de vous aider. Y a-t-il autre chose que je puisse faire pour vous ?', NULL, 5, 1),
-
-('negation', 'non,non merci,na pas,pas interesse,pas pour linstant', 'Pas de problème ! Je reste disponible si vous changez d\'avis ou si vous avez d\'autres questions.', NULL, 5, 1),
-
-('aide', 'aide,help,comment ca marche,que fais tu,tu fais quoi', '🤖 Je suis là pour vous aider avec votre projet de construction ! Je peux :
-
-✅ Vous donner des estimations de prix
-✅ Vous présenter nos modèles de maisons
-✅ Vous aider à trouver un terrain
-✅ Mettre en relation avec un conseiller
-✅ Répondre à vos questions
-
-Par quoi commençons-nous ?', NULL, 8, 1),
-
--- Intentions avancées
-('reprendre', 'reprendre,continuer,plus tard,revenu,retour,je reviens', 'Je reprends où nous en étions ! Pouvez-vous me rappeler où on s\'était arrêté ? (département, surface, budget...)', 'show_steps', 10, 1),
-
-('comparer', 'comparer,difference,versus,meilleur,choisir entre,lequel', 'Je peux vous aider à comparer nos modèles ! Quelle surface envisagez-vous ? Cela me permettra de vous proposer les meilleures options.', 'collect_info', 10, 1),
-
-('negocier', 'negocier,rabais,remise,promo,reduction,moins cher,soldes', 'Nos prix sont compétitifs et transparents. Chaque projet étant unique, je vais vous mettre en relation avec un conseiller qui pourra étudier votre situation.', 'create_lead_priority', 10, 1),
-
-('plan', 'plan,croquis,dessin,technique,facade,etage,rdc', '📐 Vous souhaitez voir les plans détaillés ? Je peux vous envoyer nos catalogues complets par email. Quelle est votre adresse ?', 'send_catalog', 10, 1),
-
-('constructeur_concurrent', 'maisons pierre,maisons france confort,tradi,france confort,autre constructeur,concurrent', '🏆 ORCA se différencie par :
-
-✅ Maisons 100% personnalisables
-✅ Accompagnement de A à Z
-✅ Transparence des prix
-✅ Garanties décennales
-✅ 30 ans d\'expérience
-
-Souhaitez-vous découvrir nos réalisations ?', 'show_realisations', 10, 1),
-
-('credit_refuse', 'credit refuse,banque refuse,pret refuse,financement impossible,credit pas accepte', '💪 Ne vous inquiétez pas ! Nous avons des partenaires financiers qui peuvent vous aider, même dans des situations complexes. Un conseiller peut étudier votre dossier gratuitement.', 'create_lead_priority', 15, 1),
-
-('urgent', 'urgent,rapidement,vite,des que possible,au plus vite,presser', '⚡ J\'ai compris que c\'est urgent ! Je vais traiter votre demande en priorité. Un conseiller vous contactera aujourd\'hui. Votre numéro de téléphone ?', 'create_lead_priority', 15, 1),
-
-('surface', 'surface,m2,metre carre,grande,maison taille', 'Pour vous orienter vers les bons modèles, quelle surface habitable envisagez-vous ? (70m², 100m², 120m²...)', 'collect_info', 10, 1),
-
-('delai', 'delai,temps,quand,commencer,construction dure,ca prend combien de temps', '⏱️ Le délai moyen est de 6 à 8 mois après obtention du permis. Mais cela dépend de la complexité du projet. Quand souhaitez-vous démarrer ?', 'collect_info', 10, 1)
-
-ON DUPLICATE KEY UPDATE 
-    keywords = VALUES(keywords),
-    response_text = VALUES(response_text),
-    priority = VALUES(priority);
-
--- ============================================
--- INSERTIONS: Configuration par défaut
--- ============================================
-INSERT INTO config (cle, valeur) VALUES
-('chatbot_openai_api_key', ''),
-('chatbot_openai_model', 'gpt-4'),
-('chatbot_enabled', '1'),
-('chatbot_auto_popup', '1'),
-('chatbot_popup_delay', '30'),
-('chatbot_primary_color', '#1a5653'),
-('chatbot_welcome_message', 'Bonjour ! 👋 Je suis l\'assistant ORCA. Que souhaitez-vous faire ?'),
-('chatbot_offline_message', 'Un conseiller vous répondra dès que possible.'),
-('chatbot_email_notifications', '1'),
-('chatbot_lead_threshold', '70'),
-('chatbot_api_key', MD5(CONCAT('orca_', UNIX_TIMESTAMP()))),
-
--- Configuration pour n8n / IA
-('chatbot_n8n_enabled', '0'),
-('chatbot_n8n_email', 'ia@maisons-orca.fr'),
-('chatbot_n8n_webhook_url', ''),
-('chatbot_n8n_trigger_on_lead', '1'),
-('chatbot_n8n_trigger_on_message', '0')
-
-ON DUPLICATE KEY UPDATE cle = VALUES(cle);
-
--- ============================================
--- INSERTIONS: Exemple de webhook n8n
--- ============================================
-INSERT INTO chatbot_webhooks (name, webhook_url, webhook_type, event_type, is_active, headers) VALUES
-('n8n Lead Processing', 'https://n8n.maisons-orca.fr/webhook/chatbot-lead', 'n8n', 'lead_created', 0, '{"Content-Type": "application/json"}')
-ON DUPLICATE KEY UPDATE webhook_url = VALUES(webhook_url);
 
 -- ============================================
 -- VERIFICATION
 -- ============================================
-SELECT 'Installation terminée avec succès !' AS message;
-SELECT CONCAT('Tables créées: ', 
-    (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE 'chatbot_%')
+SELECT 'FrenchyBot - Installation terminee avec succes !' AS message;
+SELECT CONCAT('Tables creees: ',
+    (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN
+        ('chatbots','chatbot_conversations','chatbot_messages','chatbot_intentions','chatbot_ab_tests',
+         'leads','chatbot_followups','chatbot_analytics','chatbot_user_patterns','admin_users'))
 ) AS stats;

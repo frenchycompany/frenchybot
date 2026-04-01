@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrenchyBot - Exemples d'integration</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7f9;
+            color: #333;
+            line-height: 1.6;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a5653, #0f3d3a);
+            color: #fff;
+            padding: 60px 24px;
+            text-align: center;
+        }
+        .header h1 { font-size: 36px; margin-bottom: 8px; }
+        .header p { opacity: 0.8; font-size: 18px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+        .method {
+            background: #fff;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .method h2 {
+            font-size: 20px;
+            color: #1a5653;
+            margin-bottom: 8px;
+        }
+        .method p { color: #6b7280; margin-bottom: 16px; }
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        code { font-family: 'SF Mono', 'Fira Code', monospace; }
+        .note {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 16px;
+            font-size: 14px;
+            color: #92400e;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>FrenchyBot</h1>
+        <p>Guide d'integration du chatbot</p>
+    </div>
+
+    <div class="container">
+        <div class="method">
+            <h2>Methode 1 : Widget flottant (recommande)</h2>
+            <p>Une bulle de chat apparait en bas a droite de votre site. C'est la methode la plus simple et la plus courante.</p>
+            <pre><code>&lt;!-- FrenchyBot Widget --&gt;
+&lt;script src="https://bot.frenchycompany.fr/api/v1/embed.js.php?token=VOTRE_TOKEN"&gt;&lt;/script&gt;</code></pre>
+            <div class="note">
+                Remplacez <code>VOTRE_TOKEN</code> par le token public de votre chatbot, disponible dans l'administration.
+            </div>
+        </div>
+
+        <div class="method">
+            <h2>Methode 2 : Iframe integre</h2>
+            <p>Le chatbot est integre directement dans une page de votre site, par exemple une page de contact.</p>
+            <pre><code>&lt;iframe
+    src="https://bot.frenchycompany.fr/api/v1/chat.php?token=VOTRE_TOKEN&amp;mode=inline"
+    width="100%"
+    height="600"
+    frameborder="0"
+    style="border: none; border-radius: 12px;"&gt;
+&lt;/iframe&gt;</code></pre>
+        </div>
+
+        <div class="method">
+            <h2>Methode 3 : Landing page plein ecran</h2>
+            <p>Le chatbot occupe toute la page. Ideal pour une page d'estimation ou un parcours dedie.</p>
+            <pre><code>&lt;iframe
+    src="https://bot.frenchycompany.fr/api/v1/chat.php?token=VOTRE_TOKEN&amp;mode=fullpage"
+    width="100%"
+    height="100%"
+    frameborder="0"
+    style="position: fixed; inset: 0; border: none; z-index: 9999;"&gt;
+&lt;/iframe&gt;</code></pre>
+        </div>
+
+        <div class="method">
+            <h2>Configuration avancee</h2>
+            <p>Vous pouvez controler le widget par JavaScript apres son chargement :</p>
+            <pre><code>// Ouvrir le chatbot programmatiquement
+window.FrenchyBot.open();
+
+// Fermer le chatbot
+window.FrenchyBot.close();
+
+// Verifier si le chatbot est ouvert
+window.FrenchyBot.isOpen();</code></pre>
+        </div>
+    </div>
+</body>
+</html>
