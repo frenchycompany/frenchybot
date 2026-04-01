@@ -1,14 +1,19 @@
 <?php
 /**
- * Admin - Leads Management
+ * FrenchyBot Admin - Leads Management
  */
-require_once '../includes/config.php';
+define('FRENCHYBOT', true);
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
 
-if (!isset($_SESSION['admin_logged_in'])) {
-    redirect('index.php');
-}
+$admin_user = requireAdmin();
 
 $page_title = 'Gestion des leads';
+
+// Chatbot selector
+$chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
+$chatbot_id = intval($_GET['chatbot_id'] ?? 0);
 
 // Pagination
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
@@ -24,10 +29,15 @@ $filter_source = isset($_GET['source']) ? $_GET['source'] : '';
 $where = [];
 $params = [];
 
+if ($chatbot_id) {
+    $where[] = 'l.chatbot_id = ?';
+    $params[] = $chatbot_id;
+}
+
 if ($filter_status === 'new') {
-    $where[] = 'l.is_treated = 0';
+    $where[] = "l.status = 'new'";
 } elseif ($filter_status === 'treated') {
-    $where[] = 'l.is_treated = 1';
+    $where[] = "l.status != 'new'";
 }
 
 if ($filter_type) {

@@ -274,6 +274,8 @@ $admin_user = requireAdmin();
         <ul class="navbar-nav">
             <li><a href="dashboard.php" class="<?= basename($_SERVER['PHP_SELF']) === 'dashboard.php' ? 'active' : '' ?>">Dashboard</a></li>
             <li><a href="chatbot-create.php" class="<?= basename($_SERVER['PHP_SELF']) === 'chatbot-create.php' ? 'active' : '' ?>">Nouveau chatbot</a></li>
+            <li><a href="chatbot-intentions.php" class="<?= basename($_SERVER['PHP_SELF']) === 'chatbot-intentions.php' ? 'active' : '' ?>">Intentions</a></li>
+            <li><a href="chatbot-stats.php" class="<?= basename($_SERVER['PHP_SELF']) === 'chatbot-stats.php' ? 'active' : '' ?>">Stats</a></li>
             <li><a href="leads.php" class="<?= basename($_SERVER['PHP_SELF']) === 'leads.php' ? 'active' : '' ?>">Leads</a></li>
         </ul>
         <div class="navbar-user">

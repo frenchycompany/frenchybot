@@ -1,33 +1,33 @@
 <?php
 /**
- * Fonctions du Chatbot ORCA - Version intelligente
- * Scénarios complets pré-établis + recherche BDD
+ * FrenchyBot - Moteur chatbot multi-tenant
+ * Toutes les fonctions acceptent $chatbot_id pour le filtrage multi-tenant
  */
 
 // ======================================================
 // CONVERSATION
 // ======================================================
 
-function chatbotGetOrCreateConversation() {
+function chatbotGetOrCreateConversation($chatbot_id) {
     global $pdo;
     $sid = session_id();
     $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
     $page = $_SERVER['HTTP_REFERER'] ?? '';
 
     $stmt = $pdo->prepare("SELECT * FROM chatbot_conversations
-                          WHERE session_id = ? AND is_active = 1
+                          WHERE chatbot_id = ? AND session_id = ? AND is_active = 1
                           AND last_activity > DATE_SUB(NOW(), INTERVAL 30 MINUTE)
                           ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$sid]);
+    $stmt->execute([$chatbot_id, $sid]);
     $conv = $stmt->fetch();
 
     if ($conv) return array_merge($conv, ['is_new' => false]);
 
     $pdo->prepare("INSERT INTO chatbot_conversations
-                  (session_id, ip_address, page_source, current_step, data_collected, started_at, last_activity)
-                  VALUES (?, ?, ?, 1, '{}', NOW(), NOW())")->execute([$sid, $ip, $page]);
+                  (chatbot_id, session_id, ip_address, page_source, current_step, data_collected, started_at, last_activity)
+                  VALUES (?, ?, ?, ?, 1, '{}', NOW(), NOW())")->execute([$chatbot_id, $sid, $ip, $page]);
 
-    return ['id' => $pdo->lastInsertId(), 'current_step' => 1, 'data_collected' => '{}', 'is_new' => true];
+    return ['id' => $pdo->lastInsertId(), 'chatbot_id' => $chatbot_id, 'current_step' => 1, 'data_collected' => '{}', 'is_new' => true];
 }
 
 function chatbotGetConversation($id) {
@@ -383,13 +383,14 @@ function chatbotFormatTerrains($terrains) {
 // DÉTECTION D'INTENTION (BDD puis fallback)
 // ======================================================
 
-function chatbotDetectIntention($message) {
+function chatbotDetectIntention($message, $chatbot_id) {
     global $pdo;
     $msg = mb_strtolower(trim($message));
 
-    // 1. Chercher dans chatbot_intentions (BDD)
+    // 1. Chercher dans chatbot_intentions (BDD) filtrées par chatbot
     try {
-        $stmt = $pdo->query("SELECT * FROM chatbot_intentions WHERE is_active = 1 ORDER BY priority DESC");
+        $stmt = $pdo->prepare("SELECT * FROM chatbot_intentions WHERE is_active = 1 AND chatbot_id = ? ORDER BY priority DESC");
+        $stmt->execute([$chatbot_id]);
         foreach ($stmt->fetchAll() as $intent) {
             $keywords = array_map('trim', explode(',', mb_strtolower($intent['keywords'])));
             foreach ($keywords as $kw) {
@@ -635,7 +636,7 @@ function chatbotNormalizePhone($phone) {
 // CRÉATION DE LEAD
 // ======================================================
 
-function chatbotCreateLead($conversation_id, $data) {
+function chatbotCreateLead($conversation_id, $data, $chatbot_id) {
     global $pdo;
 
     try {
@@ -644,11 +645,12 @@ function chatbotCreateLead($conversation_id, $data) {
         $pageSource = $_SERVER['HTTP_REFERER'] ?? 'chatbot';
 
         $stmt = $pdo->prepare("INSERT INTO leads
-            (nom, prenom, email, telephone, departement, surface_souhaitee, budget_estime,
+            (chatbot_id, nom, prenom, email, telephone, departement, surface_souhaitee, budget_estime,
              terrain_prevu, type_demande, source, page_source, ip_address, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'devis', 'chatbot', ?, ?, NOW())");
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'devis', 'chatbot', ?, ?, NOW())");
 
         $stmt->execute([
+            $chatbot_id,
             $data['nom'] ?? '', $data['prenom'] ?? '', $data['email'] ?? '',
             $data['telephone'] ?? '', $data['departement'] ?? '',
             $data['surface'] ?? '', $data['budget'] ?? '',
@@ -660,7 +662,7 @@ function chatbotCreateLead($conversation_id, $data) {
             ->execute([$lead_id, $conversation_id]);
 
         // Notification email admin
-        chatbotNotifyAdmin($lead_id, $data);
+        chatbotNotifyAdmin($lead_id, $data, $chatbot_id);
 
         return ['lead_id' => $lead_id, 'success' => true];
     } catch (Exception $e) {
@@ -673,17 +675,20 @@ function chatbotCreateLead($conversation_id, $data) {
 // NOTIFICATION EMAIL ADMIN (point 2)
 // ======================================================
 
-function chatbotNotifyAdmin($lead_id, $data) {
-    global $pdo, $site_config;
+function chatbotNotifyAdmin($lead_id, $data, $chatbot_id) {
+    global $pdo;
 
     try {
-        // Vérifier que les notifs sont activées
-        $stmt = $pdo->prepare("SELECT valeur FROM config WHERE cle = 'chatbot_email_notifications'");
-        $stmt->execute();
-        $enabled = $stmt->fetchColumn();
-        if ($enabled !== '1') return;
+        // Charger le chatbot pour ses paramètres
+        $stmt = $pdo->prepare("SELECT * FROM chatbots WHERE id = ?");
+        $stmt->execute([$chatbot_id]);
+        $chatbot = $stmt->fetch();
+        if (!$chatbot) return;
 
-        $adminEmail = $site_config['site_email'] ?? '';
+        // Vérifier que les notifs sont activées
+        if (!$chatbot['email_notifications']) return;
+
+        $adminEmail = $chatbot['notification_email'] ?? '';
         if (empty($adminEmail)) return;
 
         $prenom = htmlspecialchars($data['prenom'] ?? '');
@@ -694,12 +699,13 @@ function chatbotNotifyAdmin($lead_id, $data) {
         $budget = htmlspecialchars($data['budget'] ?? '-');
         $surface = htmlspecialchars($data['surface'] ?? '-');
 
-        $subject = "🏠 Nouveau lead chatbot : {$prenom} {$nom}";
+        $chatbotName = htmlspecialchars($chatbot['name'] ?? 'FrenchyBot');
+        $subject = "🏠 Nouveau lead {$chatbotName} : {$prenom} {$nom}";
 
         $body = "
         <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'>
             <div style='background:#1a5653;color:white;padding:20px;border-radius:8px 8px 0 0;'>
-                <h2 style='margin:0;'>🏠 Nouveau lead via le chatbot</h2>
+                <h2 style='margin:0;'>🏠 Nouveau lead via {$chatbotName}</h2>
             </div>
             <div style='background:white;padding:25px;border:1px solid #eee;border-radius:0 0 8px 8px;'>
                 <table style='width:100%;border-collapse:collapse;'>
@@ -713,7 +719,7 @@ function chatbotNotifyAdmin($lead_id, $data) {
                     <tr><td style='padding:8px 0;color:#888;'>Budget :</td><td style='padding:8px 0;'>{$budget} €</td></tr>
                 </table>
                 <div style='margin-top:20px;text-align:center;'>
-                    <a href='" . SITE_URL . "admin/lead-view.php?id={$lead_id}' style='display:inline-block;padding:12px 30px;background:#1a5653;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Voir le lead dans l'admin</a>
+                    <a href='" . FB_BASE_URL . "/admin/lead-view.php?id={$lead_id}' style='display:inline-block;padding:12px 30px;background:#1a5653;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Voir le lead dans l'admin</a>
                 </div>
             </div>
         </div>";
@@ -728,12 +734,13 @@ function chatbotNotifyAdmin($lead_id, $data) {
 // A/B TESTING (point 6) - récupérer la variante pour l'accueil
 // ======================================================
 
-function chatbotGetABVariant($conversation_id) {
+function chatbotGetABVariant($conversation_id, $chatbot_id) {
     global $pdo;
 
     try {
-        // Chercher un test actif sur le message de bienvenue
-        $stmt = $pdo->query("SELECT * FROM chatbot_ab_tests WHERE status = 'active' AND test_type = 'welcome_message' LIMIT 1");
+        // Chercher un test actif sur le message de bienvenue pour ce chatbot
+        $stmt = $pdo->prepare("SELECT * FROM chatbot_ab_tests WHERE chatbot_id = ? AND status = 'active' AND test_type = 'welcome_message' LIMIT 1");
+        $stmt->execute([$chatbot_id]);
         $test = $stmt->fetch();
         if (!$test) return null;
 
@@ -762,7 +769,7 @@ function chatbotGetABVariant($conversation_id) {
  * Planifier un followup pour une conversation abandonnée
  * Appelé quand un visiteur a commencé mais n'a pas laissé ses coordonnées
  */
-function chatbotScheduleFollowup($conversation_id) {
+function chatbotScheduleFollowup($conversation_id, $chatbot_id) {
     global $pdo;
 
     try {
@@ -787,13 +794,16 @@ function chatbotScheduleFollowup($conversation_id) {
         $followupDate = date('Y-m-d H:i:s', strtotime('+24 hours'));
 
         $prenom = $data['prenom'] ?? 'visiteur';
-        $subject = "Votre projet de maison ORCA - On reprend où on en était ?";
-        $content = chatbotBuildFollowupEmail($data);
+        $chatbot = getChatbotById($chatbot_id);
+        $chatbotName = $chatbot['name'] ?? 'FrenchyBot';
+        $subject = "Votre projet {$chatbotName} - On reprend où on en était ?";
+        $content = chatbotBuildFollowupEmail($data, $chatbot);
 
         $pdo->prepare("INSERT INTO chatbot_followups
-            (conversation_id, lead_data, followup_date, priority, status, email_subject, email_content, created_at)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?, NOW())")
+            (chatbot_id, conversation_id, lead_data, followup_date, priority, status, email_subject, email_content, created_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, NOW())")
             ->execute([
+                $chatbot_id,
                 $conversation_id,
                 json_encode($data, JSON_UNESCAPED_UNICODE),
                 $followupDate,
@@ -809,7 +819,7 @@ function chatbotScheduleFollowup($conversation_id) {
 /**
  * Construire l'email de relance
  */
-function chatbotBuildFollowupEmail($data) {
+function chatbotBuildFollowupEmail($data, $chatbot = null) {
     $prenom = htmlspecialchars($data['prenom'] ?? '');
     $greeting = $prenom ? "Bonjour {$prenom}," : "Bonjour,";
 
@@ -822,17 +832,17 @@ function chatbotBuildFollowupEmail($data) {
     return "
     <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'>
         <div style='background:#1a5653;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center;'>
-            <h2 style='margin:0;'>Maisons ORCA</h2>
+            <h2 style='margin:0;'><?= htmlspecialchars($chatbot['name'] ?? 'FrenchyBot') ?></h2>
         </div>
         <div style='background:white;padding:30px;border:1px solid #eee;'>
             <p>{$greeting}</p>
             <p>Vous avez commencé à explorer nos maisons sur notre site. Nous avons noté vos critères :</p>
             " . ($details ? "<ul style='line-height:1.8;'>{$details}</ul>" : "") . "
-            <p><strong>Un conseiller ORCA peut vous rappeler gratuitement</strong> pour répondre à toutes vos questions et vous accompagner dans votre projet.</p>
+            <p><strong>Un conseiller peut vous rappeler gratuitement</strong> pour répondre à toutes vos questions et vous accompagner dans votre projet.</p>
             <div style='text-align:center;margin:25px 0;'>
-                <a href='" . SITE_URL . "contact.php' style='display:inline-block;padding:14px 35px;background:#1a5653;color:white;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;'>Être rappelé gratuitement</a>
+                <a href='" . FB_BASE_URL . "/contact' style='display:inline-block;padding:14px 35px;background:#1a5653;color:white;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;'>Être rappelé gratuitement</a>
             </div>
-            <p style='color:#888;font-size:13px;'>Cet email a été envoyé suite à votre visite sur maisons-orca.fr. Si vous ne souhaitez plus recevoir de messages, ignorez simplement cet email.</p>
+            <p style='color:#888;font-size:13px;'>Cet email a été envoyé suite à votre visite. Si vous ne souhaitez plus recevoir de messages, ignorez simplement cet email.</p>
         </div>
     </div>";
 }
@@ -842,13 +852,14 @@ function chatbotBuildFollowupEmail($data) {
  * Usage: php -r "require '/var/www/orca/includes/config.php'; chatbotProcessFollowups();"
  */
 function chatbotProcessFollowups() {
-    global $pdo, $site_config;
+    global $pdo;
 
     try {
-        $stmt = $pdo->query("SELECT f.*, c.data_collected
+        $stmt = $pdo->query("SELECT f.*, c.data_collected, b.name AS chatbot_name, b.notification_email
             FROM chatbot_followups f
             JOIN chatbot_conversations c ON f.conversation_id = c.id
-            WHERE f.status = 'pending' AND f.followup_date <= NOW()
+            JOIN chatbots b ON f.chatbot_id = b.id
+            WHERE f.status = 'pending' AND f.followup_date <= NOW() AND b.is_active = 1
             LIMIT 10");
         $followups = $stmt->fetchAll();
 

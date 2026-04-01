@@ -1,18 +1,24 @@
 <?php
 /**
- * Admin - Centre d'apprentissage du Chatbot
+ * FrenchyBot Admin - Centre d'apprentissage du Chatbot
  * CRUD intentions + test live + messages non reconnus + stats
  */
-require_once '../includes/config.php';
+define('FRENCHYBOT', true);
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/chatbot-functions.php';
 
-if (!isset($_SESSION['admin_logged_in'])) {
-    header('Location: index.php');
-    exit;
-}
+$admin_user = requireAdmin();
 
-$page_title = 'Chatbot - Centre d\'apprentissage';
+$page_title = 'Centre d\'apprentissage';
 $message = '';
 $error = '';
+
+// Chatbot selector
+$chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
+$chatbot_id = intval($_GET['chatbot_id'] ?? $_POST['chatbot_id'] ?? ($chatbots_list[0]['id'] ?? 0));
+if (!$chatbot_id && !empty($chatbots_list)) $chatbot_id = $chatbots_list[0]['id'];
 
 // --- Actions ---
 
@@ -32,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_intention'])) {
         // Vérifier conflits de mots-clés
         $newKeywords = array_map('trim', explode(',', strtolower($keywords)));
         $conflicts = [];
-        $stmt = $pdo->prepare("SELECT id, intention_key, keywords FROM chatbot_intentions WHERE id != ?");
-        $stmt->execute([$id]);
+        $stmt = $pdo->prepare("SELECT id, intention_key, keywords FROM chatbot_intentions WHERE id != ? AND chatbot_id = ?");
+        $stmt->execute([$id, $chatbot_id]);
         foreach ($stmt->fetchAll() as $existing) {
             $existingKw = array_map('trim', explode(',', strtolower($existing['keywords'])));
             $overlap = array_intersect($newKeywords, $existingKw);
@@ -47,12 +53,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_intention'])) {
         } else {
             try {
                 if ($id) {
-                    $pdo->prepare("UPDATE chatbot_intentions SET intention_key=?, keywords=?, response_text=?, action=?, priority=? WHERE id=?")
-                        ->execute([$intention_key, $keywords, $response_text, $action, $priority, $id]);
+                    $pdo->prepare("UPDATE chatbot_intentions SET intention_key=?, keywords=?, response_text=?, action=?, priority=? WHERE id=? AND chatbot_id=?")
+                        ->execute([$intention_key, $keywords, $response_text, $action, $priority, $id, $chatbot_id]);
                     $message = 'Intention modifiée ✅';
                 } else {
-                    $pdo->prepare("INSERT INTO chatbot_intentions (intention_key, keywords, response_text, action, priority) VALUES (?, ?, ?, ?, ?)")
-                        ->execute([$intention_key, $keywords, $response_text, $action, $priority]);
+                    $pdo->prepare("INSERT INTO chatbot_intentions (chatbot_id, intention_key, keywords, response_text, action, priority) VALUES (?, ?, ?, ?, ?, ?)")
+                        ->execute([$chatbot_id, $intention_key, $keywords, $response_text, $action, $priority]);
                     $message = 'Nouvelle intention ajoutée ! Le chatbot a appris 🎉';
                 }
             } catch (PDOException $e) {
@@ -66,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_intention'])) {
 if (isset($_POST['test_message'])) {
     header('Content-Type: application/json');
     $testMsg = trim($_POST['test_message']);
-    $result = chatbotDetectIntention($testMsg);
+    $result = chatbotDetectIntention($testMsg, $chatbot_id);
     echo json_encode([
         'found' => $result !== null,
         'key' => $result['key'] ?? null,
@@ -78,28 +84,30 @@ if (isset($_POST['test_message'])) {
 
 // Supprimer
 if (isset($_GET['delete'])) {
-    $pdo->prepare("DELETE FROM chatbot_intentions WHERE id = ?")->execute([intval($_GET['delete'])]);
-    header('Location: chatbot-intentions.php?deleted=1');
+    $pdo->prepare("DELETE FROM chatbot_intentions WHERE id = ? AND chatbot_id = ?")->execute([intval($_GET['delete']), $chatbot_id]);
+    header('Location: chatbot-intentions.php?chatbot_id=' . $chatbot_id . '&deleted=1');
     exit;
 }
 
 // Toggle actif/inactif
 if (isset($_GET['toggle'])) {
-    $pdo->prepare("UPDATE chatbot_intentions SET is_active = NOT is_active WHERE id = ?")->execute([intval($_GET['toggle'])]);
-    header('Location: chatbot-intentions.php');
+    $pdo->prepare("UPDATE chatbot_intentions SET is_active = NOT is_active WHERE id = ? AND chatbot_id = ?")->execute([intval($_GET['toggle']), $chatbot_id]);
+    header('Location: chatbot-intentions.php?chatbot_id=' . $chatbot_id);
     exit;
 }
 
 // --- Données ---
 
 // Toutes les intentions
-$intentions = $pdo->query("SELECT * FROM chatbot_intentions ORDER BY priority DESC, intention_key ASC")->fetchAll();
+$stmt = $pdo->prepare("SELECT * FROM chatbot_intentions WHERE chatbot_id = ? ORDER BY priority DESC, intention_key ASC");
+$stmt->execute([$chatbot_id]);
+$intentions = $stmt->fetchAll();
 
 // Intention en cours d'édition
 $edit = null;
 if (isset($_GET['edit'])) {
-    $stmt = $pdo->prepare("SELECT * FROM chatbot_intentions WHERE id = ?");
-    $stmt->execute([intval($_GET['edit'])]);
+    $stmt = $pdo->prepare("SELECT * FROM chatbot_intentions WHERE id = ? AND chatbot_id = ?");
+    $stmt->execute([intval($_GET['edit']), $chatbot_id]);
     $edit = $stmt->fetch();
 }
 
@@ -107,31 +115,36 @@ if (isset($_GET['edit'])) {
 // Exclut : valeurs de boutons, navigation, réponses trop courtes
 $unrecognized = [];
 try {
-    $unrecognized = $pdo->query("SELECT message, COUNT(*) as count
-        FROM chatbot_messages
-        WHERE type = 'user'
-        AND (intention_detected IS NULL OR intention_detected = '')
-        AND LENGTH(TRIM(message)) > 3
-        AND LOWER(TRIM(message)) NOT IN ('go_maison','go_terrain','go_prix','go_question','go_form','go_form','autre','coord','fermer','voir_modeles','oui','non')
-        AND LOWER(TRIM(message)) NOT REGEXP '^[0-9]+$'
-        AND LOWER(TRIM(message)) NOT IN ('plain-pied','1-etage','tous','2','3','4','plat','en_pente','boise','constructible','oui','non','recherche',
+    $stmt_unrec = $pdo->prepare("SELECT m.message, COUNT(*) as count
+        FROM chatbot_messages m
+        JOIN chatbot_conversations c ON m.conversation_id = c.id
+        WHERE c.chatbot_id = ? AND m.type = 'user'
+        AND (m.intention_detected IS NULL OR m.intention_detected = '')
+        AND LENGTH(TRIM(m.message)) > 3
+        AND LOWER(TRIM(m.message)) NOT IN ('go_maison','go_terrain','go_prix','go_question','go_form','go_form','autre','coord','fermer','voir_modeles','oui','non')
+        AND LOWER(TRIM(m.message)) NOT REGEXP '^[0-9]+$'
+        AND LOWER(TRIM(m.message)) NOT IN ('plain-pied','1-etage','tous','2','3','4','plat','en_pente','boise','constructible','oui','non','recherche',
             'devis','modeles','rdv','maison','terrain','question','60','77','95','02','80',
             '155000','185000','220000','250000','50000','80000','120000','150000','999999')
-        GROUP BY message
+        GROUP BY m.message
         ORDER BY count DESC
-        LIMIT 20")->fetchAll();
+        LIMIT 20");
+    $stmt_unrec->execute([$chatbot_id]);
+    $unrecognized = $stmt_unrec->fetchAll();
 } catch (Exception $e) {}
 
 // Stats par intention (nombre de déclenchements)
 $intentionStats = [];
 try {
-    $intentionStats = $pdo->query("SELECT intention_detected as ikey, COUNT(*) as triggers,
+    $stmt_stats = $pdo->prepare("SELECT m.intention_detected as ikey, COUNT(*) as triggers,
         SUM(CASE WHEN c.lead_id IS NOT NULL THEN 1 ELSE 0 END) as leads
         FROM chatbot_messages m
         LEFT JOIN chatbot_conversations c ON m.conversation_id = c.id
-        WHERE m.intention_detected IS NOT NULL AND m.intention_detected != ''
+        WHERE c.chatbot_id = ? AND m.intention_detected IS NOT NULL AND m.intention_detected != ''
         GROUP BY m.intention_detected
-        ORDER BY triggers DESC")->fetchAll();
+        ORDER BY triggers DESC");
+    $stmt_stats->execute([$chatbot_id]);
+    $intentionStats = $stmt_stats->fetchAll();
     $intentionStats = array_column($intentionStats, null, 'ikey');
 } catch (Exception $e) {}
 
@@ -147,7 +160,17 @@ include 'includes/admin-header.php';
 ?>
 
 <div class="admin-content">
-    <h1 class="admin-title">🎓 Centre d'apprentissage</h1>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h1 class="admin-title" style="margin:0;">Centre d'apprentissage</h1>
+        <form method="get" style="display:flex;align-items:center;gap:8px;">
+            <label>Chatbot :</label>
+            <select name="chatbot_id" onchange="this.form.submit()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;">
+                <?php foreach ($chatbots_list as $cb): ?>
+                <option value="<?= $cb['id'] ?>" <?= $cb['id'] == $chatbot_id ? 'selected' : '' ?>><?= htmlspecialchars($cb['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    </div>
 
     <?php if ($message): ?><div class="alert alert-success"><?php echo $message; ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert alert-error"><?php echo $error; ?></div><?php endif; ?>

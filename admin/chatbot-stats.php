@@ -1,29 +1,26 @@
 <?php
 /**
- * Admin - Dashboard Chatbot ORCA
+ * FrenchyBot Admin - Statistiques et Conversations
  */
-require_once '../includes/config.php';
+define('FRENCHYBOT', true);
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
 
-if (!isset($_SESSION['admin_logged_in'])) {
-    header('Location: index.php');
-    exit;
-}
+$admin_user = requireAdmin();
 
-$page_title = 'Chatbot - Statistiques et Conversations';
+$page_title = 'Statistiques et Conversations';
+
+// Chatbot selector
+$chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
+$chatbot_id = intval($_GET['chatbot_id'] ?? ($chatbots_list[0]['id'] ?? 0));
+if (!$chatbot_id && !empty($chatbots_list)) $chatbot_id = $chatbots_list[0]['id'];
 
 // Supprimer une conversation
 if (isset($_GET['delete'])) {
     $id = intval($_GET['delete']);
-    $stmt = $pdo->prepare("DELETE FROM chatbot_conversations WHERE id = ?");
-    $stmt->execute([$id]);
-    header('Location: chatbot.php?msg=deleted');
-    exit;
-}
-
-// Vider toutes les conversations
-if (isset($_GET['clear_all']) && $_GET['clear_all'] === 'confirm') {
-    $pdo->query("DELETE FROM chatbot_conversations");
-    header('Location: chatbot.php?msg=cleared');
+    $pdo->prepare("DELETE FROM chatbot_conversations WHERE id = ? AND chatbot_id = ?")->execute([$id, $chatbot_id]);
+    header('Location: chatbot-stats.php?chatbot_id=' . $chatbot_id . '&msg=deleted');
     exit;
 }
 
@@ -31,57 +28,70 @@ if (isset($_GET['clear_all']) && $_GET['clear_all'] === 'confirm') {
 $stats = [];
 
 // Total conversations
-$stmt = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM chatbot_conversations WHERE chatbot_id = ?");
+$stmt->execute([$chatbot_id]);
 $stats['total_conversations'] = $stmt->fetchColumn();
 
 // Conversations actives (dernières 24h)
-$stmt = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations 
-                     WHERE last_activity > DATE_SUB(NOW(), INTERVAL 24 HOUR)");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM chatbot_conversations
+                     WHERE chatbot_id = ? AND last_activity > DATE_SUB(NOW(), INTERVAL 24 HOUR)");
+$stmt->execute([$chatbot_id]);
 $stats['active_24h'] = $stmt->fetchColumn();
 
 // Leads générés
-$stmt = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations WHERE lead_id IS NOT NULL");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM chatbot_conversations WHERE chatbot_id = ? AND lead_id IS NOT NULL");
+$stmt->execute([$chatbot_id]);
 $stats['leads_generated'] = $stmt->fetchColumn();
 
 // Taux de conversion
-$stats['conversion_rate'] = $stats['total_conversations'] > 0 
+$stats['conversion_rate'] = $stats['total_conversations'] > 0
     ? round(($stats['leads_generated'] / $stats['total_conversations']) * 100, 1)
     : 0;
 
 // Conversations récentes
-$stmt = $pdo->query("SELECT c.*, l.nom, l.prenom, l.email, l.telephone
+$stmt = $pdo->prepare("SELECT c.*, l.nom, l.prenom, l.email, l.telephone
                      FROM chatbot_conversations c
                      LEFT JOIN leads l ON c.lead_id = l.id
+                     WHERE c.chatbot_id = ?
                      ORDER BY c.last_activity DESC
                      LIMIT 50");
+$stmt->execute([$chatbot_id]);
 $conversations = $stmt->fetchAll();
 
 // Top intentions détectées
-$stmt = $pdo->query("SELECT intention_detected, COUNT(*) as count 
-                     FROM chatbot_messages 
-                     WHERE intention_detected IS NOT NULL 
-                     GROUP BY intention_detected 
-                     ORDER BY count DESC 
+$stmt = $pdo->prepare("SELECT m.intention_detected, COUNT(*) as count
+                     FROM chatbot_messages m
+                     JOIN chatbot_conversations c ON m.conversation_id = c.id
+                     WHERE c.chatbot_id = ? AND m.intention_detected IS NOT NULL
+                     GROUP BY m.intention_detected
+                     ORDER BY count DESC
                      LIMIT 10");
+$stmt->execute([$chatbot_id]);
 $intentions = $stmt->fetchAll();
 
 // Conversations par jour (7 derniers jours)
-$stmt = $pdo->query("SELECT DATE(started_at) as date, COUNT(*) as count
+$stmt = $pdo->prepare("SELECT DATE(started_at) as date, COUNT(*) as count
                      FROM chatbot_conversations
-                     WHERE started_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
+                     WHERE chatbot_id = ? AND started_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
                      GROUP BY DATE(started_at)
                      ORDER BY date ASC");
+$stmt->execute([$chatbot_id]);
 $conversations_by_day = $stmt->fetchAll();
 
 include 'includes/admin-header.php';
 ?>
 
 <div class="admin-content">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h1 class="admin-title">🤖 Chatbot ORCA</h1>
-        <a href="?clear_all=confirm" class="btn btn-danger" onclick="return confirm('⚠️ SUPPRIMER TOUTES LES CONVERSATIONS ? Cette action est irréversible !')">
-            🗑️ Vider tout l'historique
-        </a>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h1 class="admin-title" style="margin:0;">Statistiques</h1>
+        <form method="get" style="display:flex;align-items:center;gap:8px;">
+            <label>Chatbot :</label>
+            <select name="chatbot_id" onchange="this.form.submit()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;">
+                <?php foreach ($chatbots_list as $cb): ?>
+                <option value="<?= $cb['id'] ?>" <?= $cb['id'] == $chatbot_id ? 'selected' : '' ?>><?= htmlspecialchars($cb['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
     </div>
     
     <?php if (isset($_GET['msg'])): ?>
