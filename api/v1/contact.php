@@ -44,6 +44,6 @@ $body = "
     </div>
 </div>";
 
-sendEmail('contact@frenchycompany.fr', $subject, $body, 'FrenchyBot');
+sendEmail('raphael@frenchycompany.fr', $subject, $body, 'FrenchyBot');
 
 echo json_encode(['success' => true]);
