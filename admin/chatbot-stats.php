@@ -183,7 +183,7 @@ include 'includes/admin-header.php';
                             </td>
                             <td class="actions-cell">
                                 <a href="chatbot-view.php?id=<?php echo $conv['id']; ?>" class="btn-icon" title="Voir" style="background: #e3f2fd; color: #1976d2;">👁️</a>
-                                <a href="chatbot-learn.php?conv=<?php echo $conv['id']; ?>" class="btn-icon" title="Apprendre de cette conversation" style="background: #e8f5e9; color: #2e7d32;">🧠</a>
+                                <a href="chatbot-learn.php?chatbot_id=<?= $chatbot_id ?>&conversation_id=<?php echo $conv['id']; ?>" class="btn-icon" title="Apprendre de cette conversation" style="background: #e8f5e9; color: #2e7d32;">🧠</a>
                                 <a href="?delete=<?php echo $conv['id']; ?>" class="btn-icon" title="Supprimer" style="background: #ffebee; color: #c62828;" onclick="return confirm('Supprimer cette conversation ?')">🗑️</a>
                             </td>
                         </tr>
