@@ -21,7 +21,7 @@ define('FB_ROOT', dirname(__DIR__));
 define('DB_HOST', getenv('FB_DB_HOST') ?: 'localhost');
 define('DB_NAME', getenv('FB_DB_NAME') ?: 'frenchybot');
 define('DB_USER', getenv('FB_DB_USER') ?: 'root');
-define('DB_PASS', getenv('FB_DB_PASS') ?: '**Baycpq25**');
+define('DB_PASS', '**Baycpq25**');
 define('DB_CHARSET', 'utf8mb4');
 
 // Session
