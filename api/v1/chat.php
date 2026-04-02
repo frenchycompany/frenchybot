@@ -426,7 +426,22 @@ function handleGenericProductSearch($cid, $criteria, $productConfig) {
     if (!empty($criteria['ville'])) $understood[] = $criteria['ville'];
     if (!empty($criteria['departement'])) $understood[] = 'departement ' . $criteria['departement'];
     if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm²';
-    if ($budget > 0) $understood[] = number_format($budget, 0, ',', ' ') . ' €';
+    // Budget fourchette ou simple
+    $budgetStr = $criteria['budget'] ?? $criteria['budget_terrain'] ?? '';
+    if ($budgetStr) {
+        if (is_string($budgetStr) && strpos($budgetStr, '-') !== false) {
+            $parts = explode('-', $budgetStr);
+            $bMin = intval($parts[0]);
+            $bMax = intval($parts[1]);
+            if ($bMin > 0 && $bMax < 999999) {
+                $understood[] = number_format($bMin, 0, ',', ' ') . ' - ' . number_format($bMax, 0, ',', ' ') . ' €';
+            } elseif ($bMax < 999999) {
+                $understood[] = '< ' . number_format($bMax, 0, ',', ' ') . ' €';
+            }
+        } elseif (intval($budgetStr) > 0) {
+            $understood[] = number_format(intval($budgetStr), 0, ',', ' ') . ' €';
+        }
+    }
     if (!empty($criteria['nb_chambres'])) $understood[] = $criteria['nb_chambres'] . ' chambres';
     if (!empty($criteria['type_maison'])) $understood[] = $criteria['type_maison'];
 

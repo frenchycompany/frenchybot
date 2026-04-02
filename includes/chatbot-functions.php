@@ -106,11 +106,29 @@ function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
             $where[] = "$col = 1";
         }
 
-        // Filtre par prix/budget
-        if (!empty($criteria['budget']) && !empty($config['col_price'])) {
+        // Filtre par prix/budget (supporte fourchette "min-max" ou valeur simple)
+        $budgetVal = $criteria['budget'] ?? $criteria['budget_terrain'] ?? '';
+        if (!empty($budgetVal) && !empty($config['col_price'])) {
             $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']);
-            $where[] = "($col IS NOT NULL AND $col <= ?)";
-            $params[] = intval($criteria['budget'] * 1.1);
+            if (is_string($budgetVal) && strpos($budgetVal, '-') !== false) {
+                $parts = explode('-', $budgetVal);
+                $budgetMin = intval($parts[0]);
+                $budgetMax = intval($parts[1]);
+                if ($budgetMin > 0) {
+                    $where[] = "$col >= ?";
+                    $params[] = $budgetMin;
+                }
+                if ($budgetMax > 0 && $budgetMax < 999999) {
+                    $where[] = "$col <= ?";
+                    $params[] = $budgetMax;
+                }
+            } else {
+                $budgetMax = intval($budgetVal);
+                if ($budgetMax > 0 && $budgetMax < 999999) {
+                    $where[] = "($col IS NOT NULL AND $col <= ?)";
+                    $params[] = intval($budgetMax * 1.1);
+                }
+            }
         }
 
         // Filtre par localisation/departement
@@ -151,7 +169,7 @@ function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
 
         // Colonnes a selectionner
         $cols = ['*'];
-        $orderBy = !empty($config['col_price']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']) . ' ASC' : '1';
+        $orderBy = !empty($config['col_price']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']) . ' DESC' : '1';
 
         // Compter le total
         $countSql = "SELECT COUNT(*) FROM $table $whereClause";
@@ -391,10 +409,10 @@ function chatbotGetScenario() {
             'message' => "Parfait ! Dernière question : votre budget maison (hors terrain) ?",
             'field' => 'budget',
             'options' => [
-                ['label' => '< 155k€', 'value' => '155000', 'next' => 'results_maison'],
-                ['label' => '155 - 185k€', 'value' => '185000', 'next' => 'results_maison'],
-                ['label' => '185 - 220k€', 'value' => '220000', 'next' => 'results_maison'],
-                ['label' => '> 220k€', 'value' => '250000', 'next' => 'results_maison']
+                ['label' => '< 155k€', 'value' => '0-155000', 'next' => 'results_maison'],
+                ['label' => '155 - 185k€', 'value' => '155000-185000', 'next' => 'results_maison'],
+                ['label' => '185 - 220k€', 'value' => '185000-220000', 'next' => 'results_maison'],
+                ['label' => '> 220k€', 'value' => '220000-999999', 'next' => 'results_maison']
             ]
         ],
 
@@ -416,10 +434,10 @@ function chatbotGetScenario() {
             'message' => "Top ! Et côté budget terrain, vous êtes sur quelle fourchette ?",
             'field' => 'budget_terrain',
             'options' => [
-                ['label' => '< 50k€', 'value' => '50000', 'next' => 'results_terrain'],
-                ['label' => '50 - 80k€', 'value' => '80000', 'next' => 'results_terrain'],
-                ['label' => '80 - 120k€', 'value' => '120000', 'next' => 'results_terrain'],
-                ['label' => 'Pas de limite', 'value' => '999999', 'next' => 'results_terrain']
+                ['label' => '< 50k€', 'value' => '0-50000', 'next' => 'results_terrain'],
+                ['label' => '50 - 80k€', 'value' => '50000-80000', 'next' => 'results_terrain'],
+                ['label' => '80 - 120k€', 'value' => '80000-120000', 'next' => 'results_terrain'],
+                ['label' => 'Pas de limite', 'value' => '0-999999', 'next' => 'results_terrain']
             ]
         ],
 
