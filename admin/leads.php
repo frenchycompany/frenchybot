@@ -60,11 +60,11 @@ $total = $stmt->fetchColumn();
 $total_pages = ceil($total / $per_page);
 
 // Récupération des leads
-$sql = "SELECT l.*, m.nom as modele_nom 
-        FROM leads l 
-        LEFT JOIN modeles m ON l.modele_interesse = m.id 
-        $where_clause 
-        ORDER BY l.created_at DESC 
+$sql = "SELECT l.*, b.name as chatbot_name
+        FROM leads l
+        LEFT JOIN chatbots b ON l.chatbot_id = b.id
+        $where_clause
+        ORDER BY l.created_at DESC
         LIMIT $per_page OFFSET $offset";
 
 $stmt = $pdo->prepare($sql);
@@ -77,7 +77,9 @@ include 'includes/admin-header.php';
 <div class="admin-content">
     <h1 class="admin-title">Gestion des leads</h1>
     
-    <?php echo displayFlashMessages(); ?>
+    <?php foreach (getFlash() as $f): ?>
+        <div style="padding:12px 16px;background:<?= $f['type'] === 'error' ? '#fee2e2' : '#d1fae5' ?>;border-radius:8px;margin-bottom:16px;"><?= $f['message'] ?></div>
+    <?php endforeach; ?>
     
     <!-- Filtres -->
     <div class="admin-section">
@@ -138,44 +140,29 @@ include 'includes/admin-header.php';
                     <th>Nom</th>
                     <th>Contact</th>
                     <th>Type</th>
-                    <th>Source</th>
-                    <th>Modèle</th>
-                    <th>Localisation</th>
+                    <th>Chatbot</th>
+                    <th>Departement</th>
                     <th>Statut</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($leads as $lead): ?>
-                <tr class="<?php echo $lead['is_treated'] ? '' : 'unread'; ?>">
-                    <td><?php echo date('d/m/Y H:i', strtotime($lead['created_at'])); ?></td>
+                <tr>
+                    <td><?= dateFR($lead['created_at']) ?></td>
                     <td>
-                        <strong><?php echo clean($lead['prenom'] . ' ' . $lead['nom']); ?></strong>
+                        <strong><?= e(($lead['prenom'] ?? '') . ' ' . ($lead['nom'] ?? '')) ?></strong>
                     </td>
                     <td>
-                        <a href="mailto:<?php echo $lead['email']; ?>"><?php echo $lead['email']; ?></a><br>
-                        <a href="tel:<?php echo str_replace(' ', '', $lead['telephone']); ?>"><?php echo $lead['telephone']; ?></a>
+                        <a href="mailto:<?= e($lead['email'] ?? '') ?>"><?= e($lead['email'] ?? '-') ?></a><br>
+                        <a href="tel:<?= e($lead['telephone'] ?? '') ?>"><?= e($lead['telephone'] ?? '-') ?></a>
                     </td>
-                    <td><?php echo ucfirst($lead['type_demande']); ?></td>
+                    <td><?= ucfirst(e($lead['type_demande'] ?? '-')) ?></td>
+                    <td><?= e($lead['chatbot_name'] ?? '-') ?></td>
+                    <td><?= e($lead['departement'] ?? '-') ?></td>
+                    <td><?= statusBadge($lead['status'] ?? 'new') ?></td>
                     <td>
-                        <?php if ($lead['source'] === 'chatbot'): ?>
-                        <span class="badge" style="background:#1a5653;color:#fff;padding:3px 8px;border-radius:4px;font-size:11px;">Chatbot</span>
-                        <?php else: ?>
-                        <span style="font-size:12px;color:#888;"><?php echo clean($lead['source'] ?? 'site-web'); ?></span>
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo $lead['modele_nom'] ?? '-'; ?></td>
-                    <td><?php echo $lead['ville'] ? clean($lead['ville'] . ' (' . $lead['code_postal'] . ')') : '-'; ?></td>
-                    <td>
-                        <?php if ($lead['is_treated']): ?>
-                        <span class="badge badge-success">Traité</span>
-                        <?php else: ?>
-                        <span class="badge badge-warning">Nouveau</span>
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <a href="lead-view.php?id=<?php echo $lead['id']; ?>" class="btn btn-sm btn-primary">Voir</a>
-                        <a href="lead-delete.php?id=<?php echo $lead['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Supprimer ce lead définitivement ?')" style="background: #e74c3c; color: white; margin-left: 5px;">Supprimer</a>
+                        <a href="lead-view.php?id=<?= $lead['id'] ?>" class="btn btn-sm btn-primary">Voir</a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
