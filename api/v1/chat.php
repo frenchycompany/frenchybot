@@ -83,18 +83,18 @@ function handleMessage(int $chatbot_id) {
     $step = $scenario[$stepId] ?? null;
     $data = json_decode($conv['data_collected'] ?? '{}', true) ?: [];
 
-    // --- 0. Collecte conversationnelle des coordonnées (étapes 50-53) ---
-    if ($stepId >= 50 && $stepId <= 53 && $step && isset($step['field'])) {
-        return handleCoordStep($cid, $message, $step, $stepId, $scenario, $chatbot_id);
-    }
-
-    // --- 1. Navigation directe (valeurs de boutons) ---
+    // --- 0. Navigation directe (valeurs de boutons) — AVANT la collecte coord ---
     $nav = ['go_maison'=>10, 'go_terrain'=>20, 'go_prix'=>30, 'go_question'=>40, 'go_form'=>50,
             'autre'=>40, 'coord'=>50, 'fermer'=>55];
     $val = mb_strtolower(trim($message));
     if (isset($nav[$val])) {
         chatbotMarkRecognized($cid, 'navigation');
         return goToStep($cid, $nav[$val], $scenario);
+    }
+
+    // --- 1. Collecte conversationnelle des coordonnées (étapes 50-53) ---
+    if ($stepId >= 50 && $stepId <= 53 && $step && isset($step['field'])) {
+        return handleCoordStep($cid, $message, $step, $stepId, $scenario, $chatbot_id);
     }
 
     // --- 2. Si étape à boutons → matcher le clic ---
