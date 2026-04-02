@@ -168,14 +168,26 @@ function handleMessage(int $chatbot_id) {
         $resp = $intention['response'] ?? '';
         $act = $intention['action'] ?? '';
 
-        // Si intention terrain/maison + critères extraits → recherche enrichie
-        if ($hasCriteria && in_array($act, ['scenario_terrain', 'scenario_devis', 'afficher_modeles'])) {
-            foreach ($criteria as $k => $v) { if ($k[0] !== '_') chatbotUpdateData($cid, $k, $v); }
-            if ($act === 'scenario_terrain') return handleSmartSearchTerrain($cid, $criteria, $scenario);
-            return handleSmartSearchMaison($cid, $criteria, $scenario);
+        // Si on a des criteres concrets (ville, departement, budget, surface...) → recherche directe
+        // Peu importe l'action de l'intention — les criteres ont priorite
+        if ($hasCriteria) {
+            $subject = $criteria['_subject'] ?? null;
+            // Determiner si c'est terrain ou maison
+            $isTerrain = $subject === 'terrain' || in_array($intention['key'], ['terrain']) || in_array($act, ['scenario_terrain']);
+            $isMaison = $subject === 'maison' || in_array($intention['key'], ['modele', 'devis']) || in_array($act, ['scenario_devis', 'afficher_modeles']);
+
+            if ($isTerrain || (!$isMaison && (isset($criteria['ville']) || isset($criteria['departement'])) && !isset($criteria['nb_chambres']))) {
+                foreach ($criteria as $k => $v) { if ($k[0] !== '_') chatbotUpdateData($cid, $k, $v); }
+                if (isset($criteria['budget'])) chatbotUpdateData($cid, 'budget_terrain', $criteria['budget']);
+                return handleSmartSearchTerrain($cid, $criteria, $scenario);
+            }
+            if ($isMaison || isset($criteria['nb_chambres']) || isset($criteria['type_maison'])) {
+                foreach ($criteria as $k => $v) { if ($k[0] !== '_') chatbotUpdateData($cid, $k, $v); }
+                return handleSmartSearchMaison($cid, $criteria, $scenario);
+            }
         }
 
-        // Actions de scénario classiques
+        // Actions de scénario classiques (sans criteres concrets)
         if ($act === 'scenario_devis') { if ($resp) chatbotSaveMessage($cid, 'bot', $resp); return goToStep($cid, 30, $scenario); }
         if ($act === 'scenario_terrain') { if ($resp) chatbotSaveMessage($cid, 'bot', $resp); return goToStep($cid, 20, $scenario); }
         if ($act === 'afficher_modeles') { if ($resp) chatbotSaveMessage($cid, 'bot', $resp); return goToStep($cid, 10, $scenario); }
@@ -415,10 +427,14 @@ function handleSmartSearchMaison($cid, $criteria, $scenario) {
 function handleGenericProductSearch($cid, $criteria, $productConfig) {
     global $chatbot_id;
 
+    // Normaliser : si budget_terrain existe mais pas budget, le copier
+    if (empty($criteria['budget']) && !empty($criteria['budget_terrain'])) {
+        $criteria['budget'] = $criteria['budget_terrain'];
+    }
+
     $search = chatbotSearchProducts($chatbot_id, $productConfig['type'], $criteria);
     $results = $search['results'];
     $totalCount = $search['total'];
-    $budget = intval($criteria['budget'] ?? 0);
     $text = '';
 
     // Resumer ce qu'on a compris
