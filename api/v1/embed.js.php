@@ -304,6 +304,89 @@ $configJSON = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASH
     }
 
     // ==========================================
+    // Exit Intent Popup
+    // ==========================================
+    var exitShown = false;
+    function setupExitIntent() {
+        document.addEventListener('mouseout', function(e) {
+            if (exitShown) return;
+            if (e.clientY > 10) return; // Only trigger when mouse goes above viewport
+            if (q('fb-win').style.display === 'flex') return; // Chat already open
+            if (sessionStorage.getItem('fb-exit-shown')) return; // Already shown this session
+            exitShown = true;
+            sessionStorage.setItem('fb-exit-shown', '1');
+            showExitPopup();
+        });
+    }
+
+    function showExitPopup() {
+        var overlay = document.createElement('div');
+        overlay.id = 'fb-exit-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;animation:fbfade .3s ease;';
+        overlay.innerHTML =
+            '<div style="background:#fff;border-radius:16px;padding:40px;max-width:440px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;">' +
+                '<span id="fb-exit-close" style="position:absolute;top:12px;right:16px;cursor:pointer;font-size:24px;color:#999;">&times;</span>' +
+                '<div style="width:60px;height:60px;background:linear-gradient(135deg,' + config.color + ',' + colorDark + ');border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
+                    '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>' +
+                '</div>' +
+                '<h2 style="margin:0 0 8px;font-size:22px;color:#333;">Avant de partir...</h2>' +
+                '<p style="color:#666;margin:0 0 20px;font-size:15px;">Vous avez des questions sur votre projet ? Notre assistant peut vous aider en 2 minutes !</p>' +
+                '<button id="fb-exit-cta" style="padding:14px 32px;background:' + config.color + ';color:#fff;border:none;border-radius:12px;cursor:pointer;font-size:16px;font-weight:700;transition:transform .15s;">Discuter maintenant</button>' +
+                '<div style="margin-top:12px;"><a id="fb-exit-dismiss" href="#" style="color:#999;font-size:13px;text-decoration:none;">Non merci</a></div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        document.getElementById('fb-exit-close').onclick = closeExitPopup;
+        document.getElementById('fb-exit-dismiss').onclick = function(e) { e.preventDefault(); closeExitPopup(); };
+        document.getElementById('fb-exit-cta').onclick = function() { closeExitPopup(); toggleChat(); };
+        overlay.onclick = function(e) { if (e.target === overlay) closeExitPopup(); };
+    }
+
+    function closeExitPopup() {
+        var o = document.getElementById('fb-exit-overlay');
+        if (o) o.remove();
+    }
+
+    // ==========================================
+    // Sticky CTA Banner
+    // ==========================================
+    function createBanner() {
+        var banner = document.createElement('div');
+        banner.id = 'fb-banner';
+        banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,' + config.color + ',' + colorDark + ');color:#fff;padding:12px 20px;z-index:9999;display:flex;align-items:center;justify-content:center;gap:16px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:14px;box-shadow:0 -2px 10px rgba(0,0,0,0.15);transform:translateY(100%);transition:transform .4s ease;';
+        banner.innerHTML =
+            '<span style="font-weight:600;">Un projet en tete ? Obtenez une estimation gratuite en 2 min</span>' +
+            '<button id="fb-banner-cta" style="padding:8px 20px;background:#fff;color:' + config.color + ';border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;white-space:nowrap;">Discuter maintenant</button>' +
+            '<span id="fb-banner-close" style="cursor:pointer;font-size:18px;opacity:.7;padding:4px 8px;margin-left:8px;">&times;</span>';
+        document.body.appendChild(banner);
+
+        // Show banner after scroll (30% of page)
+        var bannerShown = false;
+        window.addEventListener('scroll', function() {
+            if (bannerShown) return;
+            var scrollPct = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
+            if (scrollPct > 30) {
+                bannerShown = true;
+                banner.style.transform = 'translateY(0)';
+            }
+        });
+
+        document.getElementById('fb-banner-cta').onclick = function() {
+            banner.style.transform = 'translateY(100%)';
+            toggleChat();
+        };
+        document.getElementById('fb-banner-close').onclick = function() {
+            banner.style.transform = 'translateY(100%)';
+            sessionStorage.setItem('fb-banner-closed', '1');
+        };
+
+        // Don't show if already closed this session
+        if (sessionStorage.getItem('fb-banner-closed')) {
+            banner.style.display = 'none';
+        }
+    }
+
+    // ==========================================
     // CSS
     // ==========================================
     function injectCSS() {
@@ -314,14 +397,16 @@ $configJSON = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASH
             '.fb-dot{width:6px;height:6px;background:#bbb;border-radius:50%;display:inline-block;animation:fbdot 1.2s infinite}' +
             '.fb-dot:nth-child(2){animation-delay:.2s}.fb-dot:nth-child(3){animation-delay:.4s}' +
             '#fb-txt:focus{border-color:' + config.color + '!important}' +
-            '@media(max-width:480px){#fb-win{left:8px!important;right:8px!important;bottom:80px!important;width:auto!important;}#fb-bubble{display:none!important;}}';
+            '#fb-exit-cta:hover{transform:scale(1.05)}' +
+            '@media(max-width:480px){#fb-win{left:8px!important;right:8px!important;bottom:80px!important;width:auto!important;}#fb-bubble{display:none!important;}#fb-banner{font-size:12px!important;}#fb-banner span:first-child{display:none!important;}}';
         document.head.appendChild(s);
     }
 
     // ==========================================
     // Init
     // ==========================================
+    function boot() { injectCSS(); createWidget(); setupExitIntent(); createBanner(); }
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() { injectCSS(); createWidget(); });
-    } else { injectCSS(); createWidget(); }
+        document.addEventListener('DOMContentLoaded', boot);
+    } else { boot(); }
 })();
