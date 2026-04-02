@@ -664,64 +664,161 @@ function chatbotFormatTerrains($terrains) {
 }
 
 // ======================================================
-// DÉTECTION D'INTENTION (BDD puis fallback)
+// DÉTECTION D'INTENTION — MOTEUR INTELLIGENT A SCORING
+// Score basé sur : nombre de matches, longueur des mots-clés,
+// phrases multi-mots, priorité, fuzzy matching
 // ======================================================
 
 function chatbotDetectIntention($message, $chatbot_id) {
     global $pdo;
     $msg = mb_strtolower(trim($message));
+    if (mb_strlen($msg) < 2) return null;
 
-    // 1. Chercher dans chatbot_intentions (BDD) filtrées par chatbot
+    $candidates = [];
+
+    // 1. Charger les intentions BDD
     try {
         $stmt = $pdo->prepare("SELECT * FROM chatbot_intentions WHERE is_active = 1 AND chatbot_id = ? ORDER BY priority DESC");
         $stmt->execute([$chatbot_id]);
-        foreach ($stmt->fetchAll() as $intent) {
-            $keywords = array_map('trim', explode(',', mb_strtolower($intent['keywords'])));
-            foreach ($keywords as $kw) {
-                if ($kw !== '' && mb_strpos($msg, $kw) !== false) {
-                    return [
-                        'key' => $intent['intention_key'],
-                        'response' => $intent['response_text'],
-                        'action' => $intent['action'] ?? null
-                    ];
-                }
-            }
-        }
-    } catch (Exception $e) {}
+        $dbIntentions = $stmt->fetchAll();
+    } catch (Exception $e) {
+        $dbIntentions = [];
+    }
 
-    // 2. Fallback hardcodé
+    foreach ($dbIntentions as $intent) {
+        $score = chatbotScoreIntention($msg, $intent['keywords'], $intent['priority']);
+        if ($score > 0) {
+            $candidates[] = [
+                'key' => $intent['intention_key'],
+                'response' => $intent['response_text'],
+                'action' => $intent['action'] ?? null,
+                'score' => $score,
+            ];
+        }
+    }
+
+    // 2. Fallback hardcodé (score de base plus bas)
     $fallback = [
         'prix' => [
-            'kw' => ['prix', 'coût', 'cout', 'combien', 'tarif', 'cher', '€', 'euro'],
-            'text' => "💰 **Nos maisons démarrent à 145 000 € (88m², plain-pied).**\n\nGamme complète de 145 000 € à 215 000 € selon la surface et le nombre de chambres.\n\n*Prix hors terrain, hors options. Consultez la grille complète !*"
+            'kw' => 'prix,coût,cout,combien,tarif,cher,€,euro',
+            'text' => "💰 **Nos maisons démarrent à 145 000 € (88m², plain-pied).**\n\nGamme complète de 145 000 € à 215 000 € selon la surface et le nombre de chambres.\n\n*Prix hors terrain, hors options. Consultez la grille complète !*",
+            'priority' => 5
         ],
         'delai' => [
-            'kw' => ['délai', 'delai', 'durée', 'duree', 'temps', 'quand', 'livraison', 'mois'],
-            'text' => "⏱️ **Délai moyen : 8 à 12 mois** (permis + construction).\n\n• Étude et permis : 2-3 mois\n• Gros oeuvre : 4-5 mois\n• Second oeuvre + finitions : 2-3 mois\n\n**Nos délais sont contractuels et garantis.**"
+            'kw' => 'délai,delai,durée,duree,temps construction,quand,livraison',
+            'text' => "⏱️ **Délai moyen : 8 à 12 mois** (permis + construction).\n\n• Étude et permis : 2-3 mois\n• Gros oeuvre : 4-5 mois\n• Second oeuvre + finitions : 2-3 mois\n\n**Nos délais sont contractuels et garantis.**",
+            'priority' => 5
         ],
         'financement' => [
-            'kw' => ['financement', 'prêt', 'pret', 'ptz', 'crédit', 'credit', 'banque', 'aide', 'mensualité'],
-            'text' => "💡 **Aides disponibles :**\n\n• **PTZ** : Prêt à Taux Zéro (sous conditions)\n• **Prêt Action Logement** : jusqu'à 40 000 €\n• **TVA réduite** dans certaines zones\n\nNotre partenaire bancaire vous accompagne gratuitement !"
+            'kw' => 'financement,prêt,pret,ptz,crédit,credit,banque,aide financière,mensualité,courtier,partenaire financement,meilleur financement',
+            'text' => "💡 **Aides disponibles :**\n\n• **PTZ** : Prêt à Taux Zéro (sous conditions)\n• **Prêt Action Logement** : jusqu'à 40 000 €\n• **TVA réduite** dans certaines zones\n\nNotre partenaire bancaire vous accompagne gratuitement !",
+            'priority' => 8
         ],
         'rdv' => [
-            'kw' => ['rendez-vous', 'rdv', 'rencontrer', 'agence', 'visite', 'appeler'],
-            'text' => "📅 **Prenons rendez-vous !**\n\n• À l'agence de Longueil-Annel (60)\n• Chez vous (déplacement gratuit)\n• En visioconférence\n\nOuvert du lundi au vendredi, 9h-18h."
+            'kw' => 'rendez-vous,rdv,rencontrer,agence,visite,appeler',
+            'text' => "📅 **Prenons rendez-vous !**\n\n• À l'agence de Longueil-Annel (60)\n• Chez vous (déplacement gratuit)\n• En visioconférence\n\nOuvert du lundi au vendredi, 9h-18h.",
+            'priority' => 5
         ],
         'garantie' => [
-            'kw' => ['garantie', 'qualité', 'norme', 'assurance', 'décennale', 're2020'],
-            'text' => "✅ **Garanties ORCA :**\n\n• Garantie décennale (10 ans)\n• Garantie biennale (2 ans)\n• Assurance dommages-ouvrage\n• Norme RE2020\n• Constructeur depuis 1993"
+            'kw' => 'garantie,qualité,norme,assurance,décennale,re2020',
+            'text' => "✅ **Garanties ORCA :**\n\n• Garantie décennale (10 ans)\n• Garantie biennale (2 ans)\n• Assurance dommages-ouvrage\n• Norme RE2020\n• Constructeur depuis 1993",
+            'priority' => 5
         ],
     ];
 
     foreach ($fallback as $key => $data) {
-        foreach ($data['kw'] as $kw) {
-            if (mb_strpos($msg, $kw) !== false) {
-                return ['key' => $key, 'response' => $data['text'], 'action' => null];
-            }
+        $score = chatbotScoreIntention($msg, $data['kw'], $data['priority']);
+        if ($score > 0) {
+            $candidates[] = [
+                'key' => $key,
+                'response' => $data['text'],
+                'action' => null,
+                'score' => $score * 0.8, // Fallback = score legerement inferieur aux intentions BDD
+            ];
         }
     }
 
-    return null;
+    // 3. Trier par score descendant et retourner le meilleur
+    if (empty($candidates)) return null;
+
+    usort($candidates, fn($a, $b) => $b['score'] <=> $a['score']);
+    return $candidates[0];
+}
+
+/**
+ * Calculer le score d'une intention pour un message
+ * Plus le score est eleve, plus l'intention est pertinente
+ */
+function chatbotScoreIntention($msg, $keywordsStr, $priority = 10) {
+    $keywords = array_map('trim', explode(',', mb_strtolower($keywordsStr)));
+    $score = 0;
+    $matchCount = 0;
+    $totalKeywordLength = 0;
+    $bestMatchLength = 0;
+
+    foreach ($keywords as $kw) {
+        if ($kw === '') continue;
+
+        $matched = false;
+        $kwLen = mb_strlen($kw);
+
+        // Match exact (contenu dans le message)
+        if (mb_strpos($msg, $kw) !== false) {
+            $matched = true;
+
+            // Bonus pour phrase multi-mots (plus specifique)
+            $wordCount = count(explode(' ', $kw));
+            if ($wordCount >= 3) {
+                $score += 30 * $wordCount; // Phrase longue = tres specifique
+            } elseif ($wordCount === 2) {
+                $score += 20;
+            } else {
+                $score += 10;
+            }
+
+            // Bonus pour longueur du mot-cle (plus long = plus specifique)
+            $score += $kwLen;
+
+            // Bonus si le mot-cle est un mot entier (pas un sous-mot)
+            // "fin" ne doit pas matcher "financement" si "fin" est un keyword
+            if ($kwLen >= 4 || preg_match('/(?:^|\s|[\'"\-])' . preg_quote($kw, '/') . '(?:$|\s|[\'"\-.,!?])/u', $msg)) {
+                $score += 5;
+            }
+        }
+        // Fuzzy matching (tolerance fautes de frappe) — seulement pour mots >= 5 chars
+        elseif ($kwLen >= 5) {
+            $words = preg_split('/[\s\-\']+/u', $msg);
+            foreach ($words as $word) {
+                $word = trim($word, '.,!?;:');
+                if (mb_strlen($word) < 3) continue;
+                $distance = levenshtein($word, $kw);
+                $threshold = ($kwLen >= 8) ? 2 : 1;
+                if ($distance <= $threshold) {
+                    $matched = true;
+                    $score += max(5, 10 - $distance * 3); // Moins de points pour fuzzy
+                    break;
+                }
+            }
+        }
+
+        if ($matched) {
+            $matchCount++;
+            $totalKeywordLength += $kwLen;
+            if ($kwLen > $bestMatchLength) $bestMatchLength = $kwLen;
+        }
+    }
+
+    if ($matchCount === 0) return 0;
+
+    // Bonus multi-match (plusieurs mots-cles du meme intent matchent)
+    if ($matchCount >= 3) $score += 25;
+    elseif ($matchCount >= 2) $score += 10;
+
+    // Poids de la priorite (x1 a x2)
+    $priorityMultiplier = 1 + ($priority / 20);
+    $score = $score * $priorityMultiplier;
+
+    return round($score, 2);
 }
 
 // ======================================================
