@@ -297,28 +297,16 @@ $ogUrl = FB_BASE_URL . '/api/v1/iframe.php?token=' . urlencode($token) . '&mode=
                 if (d.type === 'final') {
                     document.getElementById('inputBar').style.display = 'none';
                     if (d.options) showChips(d.options);
-                } else if (d.type === 'results_then_form' || d.type === 'form') {
-                    if (d.options) showChips(d.options);
-                    else if (d.type === 'results_then_form') {
-                        showChips([
-                            {label: 'Ca m\'interesse', value: 'coord', next: 50},
-                            {label: 'Autres criteres', value: 'autre', next: 40},
-                            {label: 'J\'ai une question', value: 'go_question', next: 40}
-                        ]);
-                    }
+                } else if (d.type === 'results_then_form') {
+                    showInlineForm();
+                    showChips([
+                        {label: 'Autres criteres', value: 'autre', next: 40},
+                        {label: 'J\'ai une question', value: 'go_question', next: 40}
+                    ]);
+                } else if (d.type === 'form') {
+                    showInlineForm();
                 } else if (d.options) {
                     showChips(d.options);
-                }
-
-                if (d.field) {
-                    var placeholders = {
-                        'prenom': 'Votre prenom...',
-                        'nom': 'Votre nom...',
-                        'email': 'Votre email...',
-                        'telephone': 'Votre telephone (06 12 34 56 78)...'
-                    };
-                    input.placeholder = placeholders[d.field] || 'Tapez votre message...';
-                    input.focus();
                 }
             });
         }
@@ -354,6 +342,56 @@ $ogUrl = FB_BASE_URL . '/api/v1/iframe.php?token=' . urlencode($token) . '&mode=
         function clearChips() {
             var all = document.querySelectorAll('.chips');
             for (var i = 0; i < all.length; i++) all[i].style.display = 'none';
+        }
+
+        function showInlineForm() {
+            if (document.getElementById('if-form')) return;
+            var f = document.createElement('div');
+            f.id = 'if-form';
+            f.style.cssText = 'margin:8px 0;background:#fff;border:1.5px solid <?= $color ?>;border-radius:12px;padding:16px;animation:fadeIn .3s ease;';
+            f.innerHTML =
+                '<div style="font-weight:600;font-size:14px;color:<?= $color ?>;margin-bottom:12px;">Vos coordonnees</div>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+                    '<input type="text" id="if-prenom" placeholder="Prenom *" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;">' +
+                    '<input type="text" id="if-nom" placeholder="Nom *" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;">' +
+                '</div>' +
+                '<div style="margin-bottom:8px;"><input type="email" id="if-email" placeholder="Email *" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;"></div>' +
+                '<div style="margin-bottom:10px;"><input type="tel" id="if-tel" placeholder="Telephone * (06 12 34 56 78)" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;"></div>' +
+                '<div id="if-error" style="display:none;color:#e74c3c;font-size:12px;margin-bottom:8px;"></div>' +
+                '<button id="if-submit" style="width:100%;padding:10px;background:<?= $color ?>;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;">Envoyer</button>';
+            msgContainer.appendChild(f);
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+            document.getElementById('if-prenom').focus();
+            document.getElementById('if-submit').onclick = submitForm;
+            ['if-prenom','if-nom','if-email','if-tel'].forEach(function(id, i, arr) {
+                document.getElementById(id).onkeypress = function(e) {
+                    if (e.key === 'Enter') { e.preventDefault(); if (i < arr.length-1) document.getElementById(arr[i+1]).focus(); else submitForm(); }
+                };
+            });
+        }
+
+        function submitForm() {
+            var prenom = (document.getElementById('if-prenom').value||'').trim();
+            var nom = (document.getElementById('if-nom').value||'').trim();
+            var email = (document.getElementById('if-email').value||'').trim();
+            var tel = (document.getElementById('if-tel').value||'').trim();
+            var err = document.getElementById('if-error');
+            var errors = [];
+            if (prenom.length<2) errors.push('Prenom');
+            if (nom.length<2) errors.push('Nom');
+            if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) errors.push('Email');
+            if (!tel.match(/^0[1-9][\s.\-]?(\d{2}[\s.\-]?){4}$/)) errors.push('Telephone');
+            if (errors.length) { err.textContent='Veuillez corriger : '+errors.join(', '); err.style.display='block'; return; }
+            var btn = document.getElementById('if-submit');
+            btn.textContent='Envoi...'; btn.style.opacity='0.6'; btn.disabled=true;
+            var data = JSON.stringify({prenom:prenom,nom:nom,email:email,telephone:tel});
+            post('action=form&token='+encodeURIComponent(token)+'&conversation_id='+chatId+'&data='+encodeURIComponent(data), function(d) {
+                var form = document.getElementById('if-form'); if (form) form.style.display='none';
+                if (d.error) { addMsg(d.error,'bot'); return; }
+                currentStep = d.step||currentStep;
+                if (d.message) addMsg(d.message,'bot');
+                if (d.type==='final') { document.getElementById('inputBar').style.display='none'; if (d.options) showChips(d.options); }
+            });
         }
 
         function showTyping() {

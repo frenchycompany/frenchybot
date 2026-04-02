@@ -182,15 +182,14 @@ $configJSON = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASH
             if (d.type === 'final') {
                 hideInput();
                 if (d.options) showChips(d.options);
-            } else if (d.type === 'results_then_form' || d.type === 'form') {
-                if (d.options) showChips(d.options);
-                else if (d.type === 'results_then_form') {
-                    showChips([
-                        {label: 'Ca m\'interesse', value: 'coord', next: 50},
-                        {label: 'Autres criteres', value: 'autre', next: 40},
-                        {label: 'J\'ai une question', value: 'go_question', next: 40}
-                    ]);
-                }
+            } else if (d.type === 'results_then_form') {
+                showInlineForm();
+                showChips([
+                    {label: 'Autres criteres', value: 'autre', next: 40},
+                    {label: 'J\'ai une question', value: 'go_question', next: 40}
+                ]);
+            } else if (d.type === 'form') {
+                showInlineForm();
             } else if (d.options) {
                 showChips(d.options);
             }
@@ -259,6 +258,99 @@ $configJSON = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASH
     function clearChips() {
         var all = document.querySelectorAll('.fb-chips');
         for (var i = 0; i < all.length; i++) all[i].style.display = 'none';
+    }
+
+    // ==========================================
+    // Inline Form (mini formulaire dans le chat)
+    // ==========================================
+    function showInlineForm() {
+        if (document.getElementById('fb-inline-form')) return;
+        var c = q('fb-msgs');
+        var f = document.createElement('div');
+        f.id = 'fb-inline-form';
+        f.style.cssText = 'margin:8px 0;background:#fff;border:1.5px solid ' + config.color + ';border-radius:12px;padding:16px;animation:fbfade .3s ease;';
+        f.innerHTML =
+            '<div style="font-weight:600;font-size:13px;color:' + config.color + ';margin-bottom:12px;">Vos coordonnees</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+                '<input type="text" id="fb-f-prenom" placeholder="Prenom *" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;">' +
+                '<input type="text" id="fb-f-nom" placeholder="Nom *" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;">' +
+            '</div>' +
+            '<div style="margin-bottom:8px;">' +
+                '<input type="email" id="fb-f-email" placeholder="Email *" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;">' +
+            '</div>' +
+            '<div style="margin-bottom:10px;">' +
+                '<input type="tel" id="fb-f-tel" placeholder="Telephone * (06 12 34 56 78)" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box;">' +
+            '</div>' +
+            '<div id="fb-f-error" style="display:none;color:#e74c3c;font-size:12px;margin-bottom:8px;"></div>' +
+            '<button id="fb-f-submit" style="width:100%;padding:10px;background:' + config.color + ';color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;transition:opacity .15s;">Envoyer</button>';
+
+        c.appendChild(f);
+        c.scrollTop = c.scrollHeight;
+
+        // Focus premier champ
+        document.getElementById('fb-f-prenom').focus();
+
+        // Submit
+        document.getElementById('fb-f-submit').onclick = submitInlineForm;
+
+        // Enter key sur chaque champ → passe au suivant ou submit
+        ['fb-f-prenom', 'fb-f-nom', 'fb-f-email', 'fb-f-tel'].forEach(function(id, i, arr) {
+            document.getElementById(id).onkeypress = function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (i < arr.length - 1) document.getElementById(arr[i + 1]).focus();
+                    else submitInlineForm();
+                }
+            };
+        });
+    }
+
+    function submitInlineForm() {
+        var prenom = (document.getElementById('fb-f-prenom').value || '').trim();
+        var nom = (document.getElementById('fb-f-nom').value || '').trim();
+        var email = (document.getElementById('fb-f-email').value || '').trim();
+        var tel = (document.getElementById('fb-f-tel').value || '').trim();
+        var errDiv = document.getElementById('fb-f-error');
+
+        // Validation
+        var errors = [];
+        if (prenom.length < 2) errors.push('Prenom');
+        if (nom.length < 2) errors.push('Nom');
+        if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) errors.push('Email');
+        if (!tel.match(/^0[1-9][\s.\-]?(\d{2}[\s.\-]?){4}$/)) errors.push('Telephone');
+
+        if (errors.length) {
+            errDiv.textContent = 'Veuillez corriger : ' + errors.join(', ');
+            errDiv.style.display = 'block';
+            return;
+        }
+
+        // Disable form
+        var btn = document.getElementById('fb-f-submit');
+        btn.textContent = 'Envoi...';
+        btn.style.opacity = '0.6';
+        btn.disabled = true;
+
+        // Envoyer au serveur via action=form
+        var data = JSON.stringify({prenom: prenom, nom: nom, email: email, telephone: tel});
+        post('action=form&token=' + encodeURIComponent(config.token) + '&conversation_id=' + chatId + '&data=' + encodeURIComponent(data), function(d) {
+            // Masquer le formulaire
+            var form = document.getElementById('fb-inline-form');
+            if (form) form.style.display = 'none';
+
+            if (d.error) {
+                addMsg(d.error, 'bot');
+                return;
+            }
+
+            currentStep = d.step || currentStep;
+            if (d.message) addMsg(d.message, 'bot');
+
+            if (d.type === 'final') {
+                hideInput();
+                if (d.options) showChips(d.options);
+            }
+        });
     }
 
     // ==========================================
