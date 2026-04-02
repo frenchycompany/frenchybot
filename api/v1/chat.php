@@ -429,10 +429,24 @@ function handleGenericProductSearch($cid, $criteria, $productConfig) {
 // RÉSULTATS MAISON (après le questionnaire guidé)
 // ======================================================
 function handleResultsMaison($cid, $scenario) {
+    global $chatbot_id;
     $conv = chatbotGetConversation($cid);
     $data = json_decode($conv['data_collected'] ?? '{}', true) ?: [];
 
-    $results = chatbotSearchModeles($data);
+    // Essayer BDD externe
+    $extPdo = getExternalPdo($chatbot_id);
+    if ($extPdo) {
+        foreach (getProductConfigs($chatbot_id) as $c) {
+            if (in_array($c['type'], ['maison', 'modele', 'modeles', 'product'])) {
+                $criteria = $data;
+                if (!empty($data['budget'])) $criteria['budget'] = intval($data['budget']);
+                if (!empty($data['type_maison'])) $criteria['category'] = $data['type_maison'];
+                return handleGenericProductSearch($cid, $criteria, $c);
+            }
+        }
+    }
+
+    $results = chatbotSearchModeles($data, $chatbot_id);
     $budget = intval($data['budget'] ?? 0);
     $text = chatbotFormatModeles($results, $budget);
     $text .= "\n**Intéressé ? Laissez vos coordonnées pour recevoir les fiches détaillées et une estimation !**";
@@ -452,10 +466,23 @@ function handleResultsMaison($cid, $scenario) {
 // RÉSULTATS TERRAIN (après le questionnaire)
 // ======================================================
 function handleResultsTerrain($cid, $scenario) {
+    global $chatbot_id;
     $conv = chatbotGetConversation($cid);
     $data = json_decode($conv['data_collected'] ?? '{}', true) ?: [];
 
-    $results = chatbotSearchTerrains($data);
+    // Essayer BDD externe
+    $extPdo = getExternalPdo($chatbot_id);
+    if ($extPdo) {
+        foreach (getProductConfigs($chatbot_id) as $c) {
+            if (in_array($c['type'], ['terrain', 'terrains', 'land'])) {
+                $criteria = $data;
+                if (!empty($data['budget_terrain'])) $criteria['budget'] = intval($data['budget_terrain']);
+                return handleGenericProductSearch($cid, $criteria, $c);
+            }
+        }
+    }
+
+    $results = chatbotSearchTerrains($data, $chatbot_id);
     $text = chatbotFormatTerrains($results);
     $text .= "\n**Laissez vos coordonnées pour recevoir les fiches complètes !**";
 
