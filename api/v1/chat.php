@@ -92,8 +92,26 @@ function handleMessage(int $chatbot_id) {
         return goToStep($cid, $nav[$val], $scenario);
     }
 
-    // --- 1. Collecte conversationnelle des coordonnées (étapes 50-53) ---
+    // --- 1. Si etape coord mais le message ressemble a une recherche → relancer une recherche ---
     if ($stepId >= 50 && $stepId <= 53 && $step && isset($step['field'])) {
+        $quickCriteria = chatbotExtractCriteria($message);
+        $hasRealCriteria = !empty($quickCriteria) && !empty(array_diff_key($quickCriteria, ['_subject' => 1]));
+        if ($hasRealCriteria) {
+            // C'est une recherche, pas un prenom/nom/email
+            $subject = $quickCriteria['_subject'] ?? null;
+            foreach ($quickCriteria as $k => $v) {
+                if ($k[0] !== '_') chatbotUpdateData($cid, $k, $v);
+            }
+            if ($subject === 'terrain' || !empty($quickCriteria['ville']) || (!$subject && isset($quickCriteria['departement']) && !isset($quickCriteria['nb_chambres']))) {
+                chatbotMarkRecognized($cid, 'smart_search_terrain');
+                return handleSmartSearchTerrain($cid, $quickCriteria, $scenario);
+            }
+            if ($subject === 'maison' || isset($quickCriteria['nb_chambres']) || isset($quickCriteria['type_maison'])) {
+                chatbotMarkRecognized($cid, 'smart_search_maison');
+                return handleSmartSearchMaison($cid, $quickCriteria, $scenario);
+            }
+        }
+        // Sinon, collecte normale des coordonnees
         return handleCoordStep($cid, $message, $step, $stepId, $scenario, $chatbot_id);
     }
 
