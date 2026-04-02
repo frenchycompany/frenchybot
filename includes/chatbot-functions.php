@@ -832,7 +832,7 @@ function chatbotBuildFollowupEmail($data, $chatbot = null) {
     return "
     <div style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'>
         <div style='background:#1a5653;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center;'>
-            <h2 style='margin:0;'><?= htmlspecialchars($chatbot['name'] ?? 'FrenchyBot') ?></h2>
+            <h2 style='margin:0;'>" . htmlspecialchars($chatbot['name'] ?? 'FrenchyBot') . "</h2>
         </div>
         <div style='background:white;padding:30px;border:1px solid #eee;'>
             <p>{$greeting}</p>
