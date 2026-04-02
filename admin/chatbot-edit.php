@@ -272,6 +272,9 @@ include __DIR__ . '/includes/admin-header.php';
                             <input type="checkbox" name="ext_db_enabled" value="1" <?= ($chatbot['ext_db_enabled'] ?? 0) ? 'checked' : '' ?>>
                             Activer la connexion BDD externe
                         </label>
+                        <?php if ($chatbot['ext_db_enabled'] ?? 0): ?>
+                        <a href="import-excel.php?chatbot_id=<?= $id ?>" class="btn btn-outline btn-sm" style="margin-left:12px;">Importer un fichier Excel</a>
+                        <?php endif; ?>
                     </div>
 
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
