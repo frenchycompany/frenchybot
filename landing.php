@@ -382,7 +382,7 @@ $page = $_GET['p'] ?? 'home';
             <div class="pricing-grid">
                 <div class="price-card">
                     <div class="price-name">Starter</div>
-                    <div class="price-amount">49€<span>/mois</span></div>
+                    <div class="price-amount">49€<span> HT/mois</span></div>
                     <div class="price-desc">Pour les independants et petites entreprises</div>
                     <ul class="price-features">
                         <li>1 chatbot</li>
@@ -397,7 +397,7 @@ $page = $_GET['p'] ?? 'home';
 
                 <div class="price-card popular">
                     <div class="price-name">Pro</div>
-                    <div class="price-amount">149€<span>/mois</span></div>
+                    <div class="price-amount">149€<span> HT/mois</span></div>
                     <div class="price-desc">Pour les PME et professionnels</div>
                     <ul class="price-features">
                         <li>1 chatbot avance</li>
@@ -413,7 +413,7 @@ $page = $_GET['p'] ?? 'home';
 
                 <div class="price-card">
                     <div class="price-name">Business</div>
-                    <div class="price-amount">299€<span>/mois</span></div>
+                    <div class="price-amount">299€<span> HT/mois</span></div>
                     <div class="price-desc">Pour les entreprises exigeantes</div>
                     <ul class="price-features">
                         <li>Multi-chatbots illimites</li>
