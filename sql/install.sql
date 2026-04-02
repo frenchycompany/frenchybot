@@ -228,13 +228,15 @@ CREATE TABLE IF NOT EXISTS admin_users (
     username VARCHAR(50) NOT NULL,
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role ENUM('admin','manager') DEFAULT 'manager',
+    role ENUM('admin','manager','client') DEFAULT 'manager',
+    chatbot_id INT DEFAULT NULL COMMENT 'NULL pour admin (voit tout), set pour client (voit uniquement son chatbot)',
     is_active TINYINT(1) DEFAULT 1,
     last_login DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE KEY uk_username (username),
-    UNIQUE KEY uk_email (email)
+    UNIQUE KEY uk_email (email),
+    INDEX idx_chatbot (chatbot_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

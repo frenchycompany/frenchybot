@@ -7,6 +7,14 @@ require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+$admin_user = requireAdmin();
+
+// Seul l'admin peut creer des chatbots
+if (!isAdmin()) {
+    header('Location: dashboard.php');
+    exit;
+}
+
 $page_title = 'Nouveau chatbot';
 $error = '';
 

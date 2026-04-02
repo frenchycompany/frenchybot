@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+$admin_user = requireAdmin();
 $page_title = 'Editer chatbot';
 $error = '';
 
@@ -16,8 +17,15 @@ if (!$id) {
     exit;
 }
 
-// Regenerer token
-if (isset($_POST['regenerate_token'])) {
+// Client ne peut voir que son chatbot
+$client_id = getClientChatbotId();
+if ($client_id && $client_id !== $id) {
+    header('Location: dashboard.php');
+    exit;
+}
+
+// Regenerer token (admin only)
+if (isset($_POST['regenerate_token']) && isAdmin()) {
     $newToken = generateToken(16);
     $pdo->prepare("UPDATE chatbots SET token = ?, updated_at = NOW() WHERE id = ?")->execute([$newToken, $id]);
     flash('success', 'Token regenere avec succes.');

@@ -182,6 +182,7 @@ function adminLogin(string $username, string $password): ?array {
         'id' => $user['id'],
         'username' => $user['username'],
         'role' => $user['role'],
+        'chatbot_id' => $user['chatbot_id'] ?? null,
     ];
 
     return $user;
@@ -193,6 +194,57 @@ function requireAdmin(): array {
         exit;
     }
     return $_SESSION['admin_user'];
+}
+
+/**
+ * Verifier si l'utilisateur est admin (voit tout)
+ */
+function isAdmin(): bool {
+    return ($_SESSION['admin_user']['role'] ?? '') === 'admin';
+}
+
+/**
+ * Retourne le chatbot_id du client, ou null si admin
+ */
+function getClientChatbotId(): ?int {
+    if (isAdmin()) return null;
+    return $_SESSION['admin_user']['chatbot_id'] ?? null;
+}
+
+/**
+ * Resoudre le chatbot_id a utiliser dans les pages admin :
+ * - Client : force son chatbot_id
+ * - Admin : utilise le parametre GET/POST ou le premier chatbot dispo
+ */
+function resolveAdminChatbotId(array $chatbots_list = []): int {
+    $client_id = getClientChatbotId();
+    if ($client_id) return $client_id;
+
+    $id = intval($_GET['chatbot_id'] ?? $_POST['chatbot_id'] ?? 0);
+    if ($id) return $id;
+
+    return $chatbots_list[0]['id'] ?? 0;
+}
+
+/**
+ * Filtre SQL pour limiter aux chatbots du client
+ * Retourne '' pour admin, 'AND chatbot_id = ?' pour client
+ */
+function chatbotFilter(string $alias = ''): string {
+    if (isAdmin()) return '';
+    $col = $alias ? "$alias.chatbot_id" : 'chatbot_id';
+    return " AND $col = " . intval(getClientChatbotId());
+}
+
+/**
+ * Verifier qu'un client a acces a un chatbot_id donne
+ */
+function requireChatbotAccess(int $chatbot_id): void {
+    $client_id = getClientChatbotId();
+    if ($client_id && $client_id !== $chatbot_id) {
+        http_response_code(403);
+        exit('Acces interdit');
+    }
 }
 
 function adminLogout(): void {

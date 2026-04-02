@@ -8,22 +8,35 @@ require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+$admin_user = requireAdmin();
 $page_title = 'Dashboard';
 
-// Charger tous les chatbots avec stats
+// Filtre client
+$client_filter = '';
+$client_filter_leads = '';
+$client_filter_conv = '';
+$client_id = getClientChatbotId();
+if ($client_id) {
+    $client_filter = " WHERE c.id = $client_id";
+    $client_filter_leads = " WHERE chatbot_id = $client_id";
+    $client_filter_conv = " WHERE chatbot_id = $client_id";
+}
+
+// Charger les chatbots avec stats
 $chatbots = $pdo->query("
     SELECT c.*,
         (SELECT COUNT(*) FROM leads l WHERE l.chatbot_id = c.id) as leads_count,
         (SELECT COUNT(*) FROM chatbot_conversations cc WHERE cc.chatbot_id = c.id AND cc.is_active = 1 AND cc.last_activity > DATE_SUB(NOW(), INTERVAL 30 MINUTE)) as active_conversations,
         (SELECT COUNT(*) FROM chatbot_conversations cc WHERE cc.chatbot_id = c.id) as total_conversations
     FROM chatbots c
+    $client_filter
     ORDER BY c.created_at DESC
 ")->fetchAll();
 
-// Stats globales
-$total_leads = $pdo->query("SELECT COUNT(*) FROM leads")->fetchColumn();
-$total_conversations = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations")->fetchColumn();
-$active_conversations = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations WHERE is_active = 1 AND last_activity > DATE_SUB(NOW(), INTERVAL 30 MINUTE)")->fetchColumn();
+// Stats globales (filtrees pour client)
+$total_leads = $pdo->query("SELECT COUNT(*) FROM leads" . ($client_id ? " WHERE chatbot_id = $client_id" : ""))->fetchColumn();
+$total_conversations = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations" . ($client_id ? " WHERE chatbot_id = $client_id" : ""))->fetchColumn();
+$active_conversations = $pdo->query("SELECT COUNT(*) FROM chatbot_conversations WHERE is_active = 1 AND last_activity > DATE_SUB(NOW(), INTERVAL 30 MINUTE)" . ($client_id ? " AND chatbot_id = $client_id" : ""))->fetchColumn();
 
 include __DIR__ . '/includes/admin-header.php';
 ?>
@@ -31,7 +44,9 @@ include __DIR__ . '/includes/admin-header.php';
 <div class="admin-content">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
         <h1 class="admin-title" style="margin-bottom:0;">Dashboard</h1>
+        <?php if (isAdmin()): ?>
         <a href="chatbot-create.php" class="btn btn-primary">+ Nouveau chatbot</a>
+        <?php endif; ?>
     </div>
 
     <!-- Stats globales -->

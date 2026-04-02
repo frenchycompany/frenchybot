@@ -11,10 +11,17 @@ $admin_user = requireAdmin();
 
 $page_title = 'Statistiques et Conversations';
 
-// Chatbot selector
-$chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
-$chatbot_id = intval($_GET['chatbot_id'] ?? ($chatbots_list[0]['id'] ?? 0));
-if (!$chatbot_id && !empty($chatbots_list)) $chatbot_id = $chatbots_list[0]['id'];
+// Chatbot selector (filtre client)
+$client_id = getClientChatbotId();
+if ($client_id) {
+    $chatbots_list = $pdo->prepare("SELECT id, name FROM chatbots WHERE id = ?");
+    $chatbots_list->execute([$client_id]);
+    $chatbots_list = $chatbots_list->fetchAll();
+} else {
+    $chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
+}
+$chatbot_id = resolveAdminChatbotId($chatbots_list);
+if ($client_id) requireChatbotAccess($chatbot_id);
 
 // Supprimer une conversation
 if (isset($_GET['delete'])) {

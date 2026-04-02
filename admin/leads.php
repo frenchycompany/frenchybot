@@ -11,9 +11,17 @@ $admin_user = requireAdmin();
 
 $page_title = 'Gestion des leads';
 
-// Chatbot selector
-$chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
-$chatbot_id = intval($_GET['chatbot_id'] ?? 0);
+// Chatbot selector (filtre client)
+$client_id = getClientChatbotId();
+if ($client_id) {
+    $chatbots_list = $pdo->prepare("SELECT id, name FROM chatbots WHERE id = ?");
+    $chatbots_list->execute([$client_id]);
+    $chatbots_list = $chatbots_list->fetchAll();
+    $chatbot_id = $client_id;
+} else {
+    $chatbots_list = $pdo->query("SELECT id, name FROM chatbots ORDER BY name")->fetchAll();
+    $chatbot_id = intval($_GET['chatbot_id'] ?? 0);
+}
 
 // Pagination
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
