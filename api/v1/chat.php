@@ -323,6 +323,7 @@ function handleSmartSearchTerrain($cid, $criteria, $scenario) {
     $text = '';
 
     $understood = [];
+    if (!empty($criteria['ville'])) $understood[] = $criteria['ville'];
     if (!empty($criteria['departement'])) $understood[] = 'département ' . $criteria['departement'];
     if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm²';
     if (!empty($criteria['budget'])) $understood[] = number_format($criteria['budget'], 0, ',', ' ') . ' €';
@@ -402,6 +403,7 @@ function handleGenericProductSearch($cid, $criteria, $productConfig) {
 
     // Resumer ce qu'on a compris
     $understood = [];
+    if (!empty($criteria['ville'])) $understood[] = $criteria['ville'];
     if (!empty($criteria['departement'])) $understood[] = 'departement ' . $criteria['departement'];
     if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm2';
     if ($budget > 0) $understood[] = number_format($budget, 0, ',', ' ') . ' EUR';

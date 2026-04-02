@@ -120,6 +120,19 @@ function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
             $params[] = $criteria['departement'];
         }
 
+        // Filtre par ville
+        if (!empty($criteria['ville']) && !empty($config['col_name'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_name']);
+            $where[] = "$col LIKE ?";
+            $params[] = '%' . $criteria['ville'] . '%';
+        }
+
+        // Exclure les prix invalides (0, 1, etc.)
+        if (!empty($config['col_price'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']);
+            $where[] = "$col > 100";
+        }
+
         // Filtre par surface
         if (!empty($criteria['surface']) && !empty($config['col_surface'])) {
             $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_surface']);
@@ -756,6 +769,26 @@ function chatbotExtractCriteria($message) {
         $criteria['_subject'] = 'terrain';
     } elseif (preg_match('/maison|modèle|modele|construire|villa|pavillon/i', $msg)) {
         $criteria['_subject'] = 'maison';
+    }
+
+    // --- Ville (extraire du texte : "à Moyvillers", "terrain moyvillers", "sur Compiègne") ---
+    // Pattern 1 : "à/a/sur/dans/vers VILLE" (avec ou sans majuscule)
+    if (preg_match('/(?:à|a|sur|dans|vers|près\s*de|pres\s*de|autour\s*de)\s+([a-zà-üA-ZÀ-Ü][a-zà-ü]+(?:[\s-][a-zà-üA-ZÀ-Ü]?[a-zà-ü]+)*)/ui', $message, $m)) {
+        $ville = trim($m[1]);
+        $excluded = ['bâtir', 'batir', 'vendre', 'louer', 'construire', 'acheter', 'pied', 'étage', 'etage',
+                     'moi', 'vous', 'nous', 'lui', 'elle', 'terrain', 'maison', 'budget', 'prix', 'aide'];
+        if (!in_array(mb_strtolower($ville), $excluded) && mb_strlen($ville) >= 3) {
+            $criteria['ville'] = $ville;
+        }
+    }
+    // Pattern 2 : "terrain VILLE" (dernier mot apres terrain/maison si pas deja trouve)
+    if (!isset($criteria['ville']) && preg_match('/(?:terrain|parcelle|maison)\s+(?:a\s+|à\s+)?([a-zà-üA-ZÀ-Ü][a-zà-ü]{2,}(?:[\s-][a-zà-üA-ZÀ-Ü]?[a-zà-ü]+)*)/ui', $message, $m)) {
+        $ville = trim($m[1]);
+        $excluded = ['bâtir', 'batir', 'vendre', 'louer', 'construire', 'pas', 'cher', 'disponible',
+                     'plat', 'viabilise', 'viabilisé', 'grand', 'petit', 'dans', 'sur'];
+        if (!in_array(mb_strtolower($ville), $excluded) && mb_strlen($ville) >= 3) {
+            $criteria['ville'] = $ville;
+        }
     }
 
     return $criteria;
