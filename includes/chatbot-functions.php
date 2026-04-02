@@ -5,6 +5,241 @@
  */
 
 // ======================================================
+// CONNEXION BDD EXTERNE (par chatbot) — GENERIQUE
+// ======================================================
+
+$_extPdoCache = [];
+$_extProductsCache = [];
+
+/**
+ * Obtenir la connexion PDO vers la BDD externe d'un chatbot
+ */
+function getExternalPdo($chatbot_id) {
+    global $pdo, $_extPdoCache;
+
+    if (isset($_extPdoCache[$chatbot_id])) return $_extPdoCache[$chatbot_id];
+
+    $stmt = $pdo->prepare("SELECT ext_db_enabled, ext_db_host, ext_db_name, ext_db_user, ext_db_pass FROM chatbots WHERE id = ?");
+    $stmt->execute([$chatbot_id]);
+    $cfg = $stmt->fetch();
+
+    if (!$cfg || !$cfg['ext_db_enabled'] || empty($cfg['ext_db_name'])) {
+        $_extPdoCache[$chatbot_id] = null;
+        return null;
+    }
+
+    try {
+        $extPdo = new PDO(
+            'mysql:host=' . ($cfg['ext_db_host'] ?: 'localhost') . ';dbname=' . $cfg['ext_db_name'] . ';charset=utf8mb4',
+            $cfg['ext_db_user'] ?: 'root',
+            $cfg['ext_db_pass'] ?: '',
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+        );
+        $_extPdoCache[$chatbot_id] = $extPdo;
+        return $extPdo;
+    } catch (PDOException $e) {
+        error_log('FrenchyBot ext DB error (chatbot ' . $chatbot_id . '): ' . $e->getMessage());
+        $_extPdoCache[$chatbot_id] = null;
+        return null;
+    }
+}
+
+/**
+ * Obtenir la config des produits d'un chatbot
+ * Retourne un tableau de types de produits avec leur mapping
+ *
+ * Format ext_db_products JSON :
+ * [
+ *   {
+ *     "type": "maison",           // identifiant du type
+ *     "label": "Maisons",         // nom affiche
+ *     "table": "modeles",         // table SQL
+ *     "col_name": "nom",          // colonne nom du produit
+ *     "col_price": "prix_base",   // colonne prix
+ *     "col_description": "slogan",// colonne description (optionnel)
+ *     "col_location": "",         // colonne localisation (optionnel)
+ *     "col_surface": "surface_habitable",  // colonne surface (optionnel)
+ *     "col_image": "",            // colonne image URL (optionnel)
+ *     "col_category": "nb_etages",// colonne categorie (optionnel)
+ *     "col_active": "is_active",  // colonne actif (optionnel, defaut: aucun filtre)
+ *     "col_extra": ["nb_chambres","style"],  // colonnes supplementaires a afficher
+ *     "search_keywords": ["maison","modele","construire","villa"] // mots-cles pour detecter ce type
+ *   }
+ * ]
+ */
+function getProductConfigs($chatbot_id) {
+    global $pdo, $_extProductsCache;
+
+    if (isset($_extProductsCache[$chatbot_id])) return $_extProductsCache[$chatbot_id];
+
+    $stmt = $pdo->prepare("SELECT ext_db_products FROM chatbots WHERE id = ?");
+    $stmt->execute([$chatbot_id]);
+    $json = $stmt->fetchColumn();
+    $products = $json ? json_decode($json, true) : [];
+
+    $_extProductsCache[$chatbot_id] = is_array($products) ? $products : [];
+    return $_extProductsCache[$chatbot_id];
+}
+
+/**
+ * Recherche generique de produits dans la BDD externe
+ */
+function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
+    $extPdo = getExternalPdo($chatbot_id);
+    if (!$extPdo) return [];
+
+    $configs = getProductConfigs($chatbot_id);
+    $config = null;
+    foreach ($configs as $c) {
+        if ($c['type'] === $productType) { $config = $c; break; }
+    }
+    if (!$config || empty($config['table'])) return [];
+
+    try {
+        $table = preg_replace('/[^a-zA-Z0-9_]/', '', $config['table']);
+        $where = [];
+        $params = [];
+
+        // Filtre actif
+        if (!empty($config['col_active'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_active']);
+            $where[] = "$col = 1";
+        }
+
+        // Filtre par prix/budget
+        if (!empty($criteria['budget']) && !empty($config['col_price'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']);
+            $where[] = "($col IS NOT NULL AND $col <= ?)";
+            $params[] = intval($criteria['budget'] * 1.1);
+        }
+
+        // Filtre par localisation/departement
+        if (!empty($criteria['departement']) && !empty($config['col_location'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_location']);
+            $where[] = "$col = ?";
+            $params[] = $criteria['departement'];
+        }
+
+        // Filtre par surface
+        if (!empty($criteria['surface']) && !empty($config['col_surface'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_surface']);
+            $where[] = "$col >= ?";
+            $params[] = intval($criteria['surface'] * 0.8);
+        }
+
+        // Filtre par categorie
+        if (!empty($criteria['category']) && !empty($config['col_category'])) {
+            $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_category']);
+            $where[] = "$col = ?";
+            $params[] = $criteria['category'];
+        }
+
+        $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        // Colonnes a selectionner
+        $cols = ['*'];
+        $orderBy = !empty($config['col_price']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']) . ' ASC' : '1';
+
+        $sql = "SELECT * FROM $table $whereClause ORDER BY $orderBy LIMIT 6";
+        $stmt = $extPdo->prepare($sql);
+        $stmt->execute($params);
+        $results = $stmt->fetchAll();
+
+        // Fallback sans filtre budget si rien trouve
+        if (empty($results) && !empty($criteria['budget'])) {
+            $where2 = [];
+            $params2 = [];
+            if (!empty($config['col_active'])) {
+                $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_active']);
+                $where2[] = "$col = 1";
+            }
+            if (!empty($criteria['departement']) && !empty($config['col_location'])) {
+                $col = preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_location']);
+                $where2[] = "$col = ?";
+                $params2[] = $criteria['departement'];
+            }
+            $whereClause2 = !empty($where2) ? 'WHERE ' . implode(' AND ', $where2) : '';
+            $sql2 = "SELECT * FROM $table $whereClause2 ORDER BY $orderBy LIMIT 6";
+            $stmt2 = $extPdo->prepare($sql2);
+            $stmt2->execute($params2);
+            $results = $stmt2->fetchAll();
+        }
+
+        return $results;
+    } catch (Exception $e) {
+        error_log('FrenchyBot product search error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Formater les resultats generiques
+ */
+function chatbotFormatProducts($results, $config, $budget = 0) {
+    if (empty($results)) {
+        $label = $config['label'] ?? 'produits';
+        return "Aucun(e) $label disponible pour ces criteres actuellement.\n\nLaissez vos coordonnees et un conseiller vous contactera !";
+    }
+
+    $label = $config['label'] ?? 'Resultats';
+    $colName = $config['col_name'] ?? '';
+    $colPrice = $config['col_price'] ?? '';
+    $colDescription = $config['col_description'] ?? '';
+    $colLocation = $config['col_location'] ?? '';
+    $colSurface = $config['col_surface'] ?? '';
+    $colExtra = $config['col_extra'] ?? [];
+
+    $text = "**" . count($results) . " " . $label . " disponible(s) :**\n\n";
+
+    foreach ($results as $r) {
+        $name = $colName && isset($r[$colName]) ? $r[$colName] : 'Produit';
+        $text .= "**$name**";
+
+        $details = [];
+        if ($colSurface && !empty($r[$colSurface])) $details[] = $r[$colSurface] . 'm2';
+        if ($colLocation && !empty($r[$colLocation])) $details[] = $r[$colLocation];
+        foreach ($colExtra as $extraCol) {
+            if (!empty($r[$extraCol])) $details[] = $r[$extraCol];
+        }
+        if (!empty($details)) $text .= " — " . implode(', ', $details);
+        $text .= "\n";
+
+        if ($colPrice && !empty($r[$colPrice])) {
+            $prix = number_format((float)$r[$colPrice], 0, ',', ' ') . ' EUR';
+            $text .= "→ $prix\n";
+        }
+        if ($colDescription && !empty($r[$colDescription])) {
+            $text .= "*" . mb_substr($r[$colDescription], 0, 80) . "*\n";
+        }
+        $text .= "\n";
+    }
+
+    return $text;
+}
+
+/**
+ * Detecter quel type de produit l'utilisateur recherche
+ */
+function chatbotDetectProductType($message, $chatbot_id) {
+    $msg = mb_strtolower(trim($message));
+    $configs = getProductConfigs($chatbot_id);
+
+    foreach ($configs as $config) {
+        $keywords = $config['search_keywords'] ?? [];
+        foreach ($keywords as $kw) {
+            if (mb_strpos($msg, mb_strtolower($kw)) !== false) {
+                return $config;
+            }
+        }
+    }
+
+    // Si un seul type configure, le retourner par defaut
+    if (count($configs) === 1) return $configs[0];
+
+    return null;
+}
+
+// ======================================================
 // CONVERSATION
 // ======================================================
 
@@ -231,8 +466,11 @@ function chatbotGetScenario() {
 // RECHERCHE MODÈLES EN BDD
 // ======================================================
 
-function chatbotSearchModeles($data) {
+function chatbotSearchModeles($data, $chatbot_id = null) {
     global $pdo;
+    $db = $chatbot_id ? (getExternalPdo($chatbot_id) ?: $pdo) : $pdo;
+    $tables = $chatbot_id ? getExternalTables($chatbot_id) : ['modeles' => 'modeles'];
+    $tbl = $tables['modeles'];
 
     try {
         $where = ['is_active = 1'];
@@ -258,8 +496,8 @@ function chatbotSearchModeles($data) {
         }
 
         $sql = "SELECT nom, slug, surface_habitable, nb_chambres, nb_etages, style, prix_base, prix_afficher, slogan
-                FROM modeles WHERE " . implode(' AND ', $where) . " ORDER BY prix_base ASC LIMIT 6";
-        $stmt = $pdo->prepare($sql);
+                FROM $tbl WHERE " . implode(' AND ', $where) . " ORDER BY prix_base ASC LIMIT 6";
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $results = $stmt->fetchAll();
 
@@ -271,8 +509,8 @@ function chatbotSearchModeles($data) {
             if ($chambres > 0) { $where2[] = 'nb_chambres >= ?'; $params2[] = $chambres; }
 
             $sql2 = "SELECT nom, slug, surface_habitable, nb_chambres, nb_etages, style, prix_base, prix_afficher, slogan
-                     FROM modeles WHERE " . implode(' AND ', $where2) . " ORDER BY prix_base ASC LIMIT 6";
-            $stmt2 = $pdo->prepare($sql2);
+                     FROM $tbl WHERE " . implode(' AND ', $where2) . " ORDER BY prix_base ASC LIMIT 6";
+            $stmt2 = $db->prepare($sql2);
             $stmt2->execute($params2);
             $results = $stmt2->fetchAll();
         }
@@ -340,8 +578,11 @@ function chatbotFormatModeles($modeles, $budget = 0) {
 // RECHERCHE TERRAINS EN BDD
 // ======================================================
 
-function chatbotSearchTerrains($data) {
+function chatbotSearchTerrains($data, $chatbot_id = null) {
     global $pdo;
+    $db = $chatbot_id ? (getExternalPdo($chatbot_id) ?: $pdo) : $pdo;
+    $tables = $chatbot_id ? getExternalTables($chatbot_id) : ['terrains' => 'terrains'];
+    $tbl = $tables['terrains'];
 
     try {
         $where = ['is_available = 1'];
@@ -354,8 +595,8 @@ function chatbotSearchTerrains($data) {
         if ($budget > 0 && $budget < 999999) { $where[] = 'prix <= ?'; $params[] = $budget; }
 
         $sql = "SELECT DISTINCT reference, ville, code_postal, departement, surface, prix, est_viabilise, proximite
-                FROM terrains WHERE " . implode(' AND ', $where) . " ORDER BY prix ASC LIMIT 5";
-        $stmt = $pdo->prepare($sql);
+                FROM $tbl WHERE " . implode(' AND ', $where) . " ORDER BY prix ASC LIMIT 5";
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
     } catch (Exception $e) {
@@ -523,8 +764,11 @@ function chatbotExtractCriteria($message) {
 /**
  * Recherche terrains avec critères enrichis (surface, viabilisé...)
  */
-function chatbotSearchTerrainsAdvanced($criteria) {
+function chatbotSearchTerrainsAdvanced($criteria, $chatbot_id = null) {
     global $pdo;
+    $db = $chatbot_id ? (getExternalPdo($chatbot_id) ?: $pdo) : $pdo;
+    $tables = $chatbot_id ? getExternalTables($chatbot_id) : ['terrains' => 'terrains'];
+    $tbl = $tables['terrains'];
 
     try {
         $where = ['is_available = 1'];
@@ -539,7 +783,6 @@ function chatbotSearchTerrainsAdvanced($criteria) {
             $params[] = intval($criteria['budget']);
         }
         if (!empty($criteria['surface'])) {
-            // Chercher des terrains >= surface demandée (avec marge -20%)
             $where[] = 'surface >= ?';
             $params[] = intval($criteria['surface'] * 0.8);
         }
@@ -548,8 +791,8 @@ function chatbotSearchTerrainsAdvanced($criteria) {
         }
 
         $sql = "SELECT DISTINCT reference, ville, code_postal, departement, surface, prix, est_viabilise, proximite
-                FROM terrains WHERE " . implode(' AND ', $where) . " ORDER BY prix ASC LIMIT 5";
-        $stmt = $pdo->prepare($sql);
+                FROM $tbl WHERE " . implode(' AND ', $where) . " ORDER BY prix ASC LIMIT 5";
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
     } catch (Exception $e) {
@@ -560,8 +803,11 @@ function chatbotSearchTerrainsAdvanced($criteria) {
 /**
  * Recherche modèles avec critères enrichis
  */
-function chatbotSearchModelesAdvanced($criteria) {
+function chatbotSearchModelesAdvanced($criteria, $chatbot_id = null) {
     global $pdo;
+    $db = $chatbot_id ? (getExternalPdo($chatbot_id) ?: $pdo) : $pdo;
+    $tables = $chatbot_id ? getExternalTables($chatbot_id) : ['modeles' => 'modeles'];
+    $tbl = $tables['modeles'];
 
     try {
         $where = ['is_active = 1'];
@@ -585,8 +831,8 @@ function chatbotSearchModelesAdvanced($criteria) {
         }
 
         $sql = "SELECT nom, slug, surface_habitable, nb_chambres, nb_etages, style, prix_base, prix_afficher, slogan
-                FROM modeles WHERE " . implode(' AND ', $where) . " ORDER BY prix_base ASC LIMIT 6";
-        $stmt = $pdo->prepare($sql);
+                FROM $tbl WHERE " . implode(' AND ', $where) . " ORDER BY prix_base ASC LIMIT 6";
+        $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $results = $stmt->fetchAll();
 
@@ -598,8 +844,8 @@ function chatbotSearchModelesAdvanced($criteria) {
             if (!empty($criteria['nb_chambres'])) { $where2[] = 'nb_chambres >= ?'; $params2[] = intval($criteria['nb_chambres']); }
             if (!empty($criteria['surface'])) { $where2[] = 'surface_habitable >= ?'; $params2[] = intval($criteria['surface'] * 0.85); }
             $sql2 = "SELECT nom, slug, surface_habitable, nb_chambres, nb_etages, style, prix_base, prix_afficher, slogan
-                     FROM modeles WHERE " . implode(' AND ', $where2) . " ORDER BY prix_base ASC LIMIT 6";
-            $stmt2 = $pdo->prepare($sql2);
+                     FROM $tbl WHERE " . implode(' AND ', $where2) . " ORDER BY prix_base ASC LIMIT 6";
+            $stmt2 = $db->prepare($sql2);
             $stmt2->execute($params2);
             $results = $stmt2->fetchAll();
         }

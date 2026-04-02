@@ -58,6 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         'webhook_url' => trim($_POST['webhook_url'] ?? ''),
         'email_notifications' => isset($_POST['email_notifications']) ? 1 : 0,
         'notification_email' => trim($_POST['notification_email'] ?? ''),
+        // BDD externe
+        'ext_db_enabled' => isset($_POST['ext_db_enabled']) ? 1 : 0,
+        'ext_db_host' => trim($_POST['ext_db_host'] ?? 'localhost'),
+        'ext_db_name' => trim($_POST['ext_db_name'] ?? ''),
+        'ext_db_user' => trim($_POST['ext_db_user'] ?? ''),
+        'ext_db_pass' => trim($_POST['ext_db_pass'] ?? ''),
+        'ext_db_products' => trim($_POST['ext_db_products'] ?? ''),
     ];
 
     if (empty($data['name'])) {
@@ -67,13 +74,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
             $stmt = $pdo->prepare("UPDATE chatbots SET
                 name=?, domain=?, welcome_message=?, primary_color=?, auto_popup=?, popup_delay=?,
                 logo_url=?, ai_provider=?, ai_api_key=?, ai_model=?, webhook_enabled=?, webhook_url=?,
-                email_notifications=?, notification_email=?, updated_at=NOW()
+                email_notifications=?, notification_email=?,
+                ext_db_enabled=?, ext_db_host=?, ext_db_name=?, ext_db_user=?, ext_db_pass=?, ext_db_products=?,
+                updated_at=NOW()
                 WHERE id=?");
             $stmt->execute([
                 $data['name'], $data['domain'], $data['welcome_message'], $data['primary_color'],
                 $data['auto_popup'], $data['popup_delay'], $data['logo_url'], $data['ai_provider'],
                 $data['ai_api_key'], $data['ai_model'], $data['webhook_enabled'], $data['webhook_url'],
-                $data['email_notifications'], $data['notification_email'], $id
+                $data['email_notifications'], $data['notification_email'],
+                $data['ext_db_enabled'], $data['ext_db_host'], $data['ext_db_name'], $data['ext_db_user'],
+                $data['ext_db_pass'], $data['ext_db_products'] ?: null, $id
             ]);
             flash('success', 'Chatbot mis a jour.');
             header('Location: chatbot-edit.php?id=' . $id);
@@ -246,6 +257,69 @@ include __DIR__ . '/includes/admin-header.php';
                         <input type="email" id="notification_email" name="notification_email" class="form-control"
                                placeholder="admin@monsite.fr"
                                value="<?= e($chatbot['notification_email'] ?? '') ?>">
+                    </div>
+                </div>
+
+                <!-- BDD Externe -->
+                <div class="admin-section">
+                    <h2 style="font-size:18px;margin-bottom:16px;">Base de donnees externe (produits)</h2>
+                    <p style="font-size:13px;color:var(--color-gray);margin-bottom:16px;">
+                        Connectez le chatbot a la base de donnees de votre client pour qu'il puisse rechercher ses produits (maisons, terrains, vehicules, etc.)
+                    </p>
+
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="ext_db_enabled" value="1" <?= ($chatbot['ext_db_enabled'] ?? 0) ? 'checked' : '' ?>>
+                            Activer la connexion BDD externe
+                        </label>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group">
+                            <label for="ext_db_host">Host</label>
+                            <input type="text" id="ext_db_host" name="ext_db_host" class="form-control"
+                                   value="<?= e($chatbot['ext_db_host'] ?? 'localhost') ?>" placeholder="localhost">
+                        </div>
+                        <div class="form-group">
+                            <label for="ext_db_name">Nom de la base</label>
+                            <input type="text" id="ext_db_name" name="ext_db_name" class="form-control"
+                                   value="<?= e($chatbot['ext_db_name'] ?? '') ?>" placeholder="nom_base_client">
+                        </div>
+                        <div class="form-group">
+                            <label for="ext_db_user">Utilisateur</label>
+                            <input type="text" id="ext_db_user" name="ext_db_user" class="form-control"
+                                   value="<?= e($chatbot['ext_db_user'] ?? '') ?>" placeholder="root">
+                        </div>
+                        <div class="form-group">
+                            <label for="ext_db_pass">Mot de passe</label>
+                            <input type="password" id="ext_db_pass" name="ext_db_pass" class="form-control"
+                                   value="<?= e($chatbot['ext_db_pass'] ?? '') ?>">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ext_db_products">Configuration des produits (JSON)</label>
+                        <textarea id="ext_db_products" name="ext_db_products" class="form-control" rows="12"
+                                  style="font-family:'SF Mono','Fira Code',monospace;font-size:12px;"
+                                  placeholder='[{"type":"maison","label":"Maisons","table":"modeles","col_name":"nom","col_price":"prix_base","col_description":"slogan","col_surface":"surface_habitable","col_category":"nb_etages","col_active":"is_active","col_extra":["nb_chambres"],"search_keywords":["maison","modele","construire"]}]'><?= e($chatbot['ext_db_products'] ?? '') ?></textarea>
+                        <small>Format : tableau JSON. Chaque objet = un type de produit a rechercher.</small>
+                        <details style="margin-top:8px;font-size:12px;color:var(--color-gray);">
+                            <summary style="cursor:pointer;font-weight:600;">Voir les champs disponibles</summary>
+                            <ul style="margin-top:8px;line-height:2;">
+                                <li><code>type</code> : identifiant (maison, terrain, vehicule...)</li>
+                                <li><code>label</code> : nom affiche ("Maisons", "Terrains"...)</li>
+                                <li><code>table</code> : nom de la table SQL</li>
+                                <li><code>col_name</code> : colonne du nom du produit</li>
+                                <li><code>col_price</code> : colonne du prix</li>
+                                <li><code>col_description</code> : colonne description</li>
+                                <li><code>col_location</code> : colonne localisation (dept, ville)</li>
+                                <li><code>col_surface</code> : colonne surface</li>
+                                <li><code>col_category</code> : colonne categorie/type</li>
+                                <li><code>col_active</code> : colonne actif (1/0)</li>
+                                <li><code>col_extra</code> : colonnes supplementaires (tableau)</li>
+                                <li><code>search_keywords</code> : mots-cles pour detecter ce type dans les messages</li>
+                            </ul>
+                        </details>
                     </div>
                 </div>
 

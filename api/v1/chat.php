@@ -305,10 +305,23 @@ function handleCoordStep($cid, $message, $step, $stepId, $scenario, $chatbot_id)
 // ======================================================
 
 function handleSmartSearchTerrain($cid, $criteria, $scenario) {
-    $results = chatbotSearchTerrainsAdvanced($criteria);
+    global $chatbot_id;
+
+    // Essayer BDD externe d'abord
+    $extPdo = getExternalPdo($chatbot_id);
+    if ($extPdo) {
+        $productConfig = null;
+        foreach (getProductConfigs($chatbot_id) as $c) {
+            if (in_array($c['type'], ['terrain', 'terrains', 'land'])) { $productConfig = $c; break; }
+        }
+        if ($productConfig) {
+            return handleGenericProductSearch($cid, $criteria, $productConfig);
+        }
+    }
+
+    $results = chatbotSearchTerrainsAdvanced($criteria, $chatbot_id);
     $text = '';
 
-    // Résumer ce qu'on a compris
     $understood = [];
     if (!empty($criteria['departement'])) $understood[] = 'département ' . $criteria['departement'];
     if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm²';
@@ -336,11 +349,24 @@ function handleSmartSearchTerrain($cid, $criteria, $scenario) {
 }
 
 function handleSmartSearchMaison($cid, $criteria, $scenario) {
-    $results = chatbotSearchModelesAdvanced($criteria);
+    global $chatbot_id;
+
+    // Essayer BDD externe d'abord
+    $extPdo = getExternalPdo($chatbot_id);
+    if ($extPdo) {
+        $productConfig = null;
+        foreach (getProductConfigs($chatbot_id) as $c) {
+            if (in_array($c['type'], ['maison', 'modele', 'modeles', 'product'])) { $productConfig = $c; break; }
+        }
+        if ($productConfig) {
+            return handleGenericProductSearch($cid, $criteria, $productConfig);
+        }
+    }
+
+    $results = chatbotSearchModelesAdvanced($criteria, $chatbot_id);
     $budget = intval($criteria['budget'] ?? 0);
     $text = '';
 
-    // Résumer ce qu'on a compris
     $understood = [];
     if (!empty($criteria['type_maison'])) $understood[] = $criteria['type_maison'] === 'plain-pied' ? 'plain-pied' : 'avec étage';
     if (!empty($criteria['nb_chambres'])) $understood[] = $criteria['nb_chambres'] . ' chambres';
@@ -353,6 +379,41 @@ function handleSmartSearchMaison($cid, $criteria, $scenario) {
 
     $text .= chatbotFormatModeles($results, $budget);
     $text .= "\n**Laissez vos coordonnées pour une estimation détaillée !**";
+
+    chatbotSaveMessage($cid, 'bot', $text);
+    chatbotUpdateStep($cid, 50);
+    respond([
+        'step' => 50,
+        'type' => 'results_then_form',
+        'message' => $text,
+        'results_count' => count($results)
+    ]);
+}
+
+// ======================================================
+// RECHERCHE PRODUIT GENERIQUE (BDD externe)
+// ======================================================
+function handleGenericProductSearch($cid, $criteria, $productConfig) {
+    global $chatbot_id;
+
+    $results = chatbotSearchProducts($chatbot_id, $productConfig['type'], $criteria);
+    $budget = intval($criteria['budget'] ?? 0);
+    $text = '';
+
+    // Resumer ce qu'on a compris
+    $understood = [];
+    if (!empty($criteria['departement'])) $understood[] = 'departement ' . $criteria['departement'];
+    if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm2';
+    if ($budget > 0) $understood[] = number_format($budget, 0, ',', ' ') . ' EUR';
+    if (!empty($criteria['nb_chambres'])) $understood[] = $criteria['nb_chambres'] . ' chambres';
+    if (!empty($criteria['type_maison'])) $understood[] = $criteria['type_maison'];
+
+    if (!empty($understood)) {
+        $text .= "J'ai compris : **" . implode(', ', $understood) . "**\n\n";
+    }
+
+    $text .= chatbotFormatProducts($results, $productConfig, $budget);
+    $text .= "\n**Laissez vos coordonnees pour plus de details !**";
 
     chatbotSaveMessage($cid, 'bot', $text);
     chatbotUpdateStep($cid, 50);

@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS chatbots (
     webhook_url VARCHAR(500) DEFAULT NULL,
     email_notifications TINYINT(1) DEFAULT 1,
     notification_email VARCHAR(255) DEFAULT NULL,
+    -- Config BDD externe (produits generiques)
+    ext_db_enabled TINYINT(1) DEFAULT 0,
+    ext_db_host VARCHAR(255) DEFAULT 'localhost',
+    ext_db_name VARCHAR(100) DEFAULT NULL,
+    ext_db_user VARCHAR(100) DEFAULT NULL,
+    ext_db_pass VARCHAR(255) DEFAULT NULL,
+    ext_db_products JSON DEFAULT NULL COMMENT 'Config des tables produits: [{type, table, col_name, col_price, col_description, col_location, col_surface, col_image, col_active, col_category, search_fields}]',
     -- Statut
     is_active TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
