@@ -908,11 +908,20 @@ function chatbotExtractCriteria($message) {
             $criteria['ville'] = $ville;
         }
     }
-    // Pattern 2 : "terrain VILLE" (dernier mot apres terrain/maison si pas deja trouve)
-    if (!isset($criteria['ville']) && preg_match('/(?:terrain|parcelle|maison)\s+(?:a\s+|à\s+)?([a-zà-üA-ZÀ-Ü][a-zà-ü]{2,}(?:[\s-][a-zà-üA-ZÀ-Ü]?[a-zà-ü]+)*)/ui', $message, $m)) {
+    // Pattern 2 : "terrain VILLE" ou "terrain de/du/a VILLE" (sans preposition obligatoire)
+    if (!isset($criteria['ville']) && preg_match('/(?:terrain|parcelle|maison|construire)\s+(?:a\s+|à\s+|de\s+|du\s+|au\s+|aux\s+|sur\s+|dans\s+|vers\s+|près\s+de\s+|pres\s+de\s+)?([a-zà-üA-ZÀ-Ü][a-zà-ü]{2,}(?:[\s-][a-zà-üA-ZÀ-Ü]?[a-zà-ü]+)*)/ui', $message, $m)) {
         $ville = trim($m[1]);
         $excluded = ['bâtir', 'batir', 'vendre', 'louer', 'construire', 'pas', 'cher', 'disponible',
                      'plat', 'viabilise', 'viabilisé', 'grand', 'petit', 'dans', 'sur'];
+        if (!in_array(mb_strtolower($ville), $excluded) && mb_strlen($ville) >= 3) {
+            $criteria['ville'] = $ville;
+        }
+    }
+
+    // Pattern 3 : "VILLE terrain" ou "compiegne je cherche un terrain"
+    if (!isset($criteria['ville']) && preg_match('/^([a-zà-üA-ZÀ-Ü][a-zà-ü]{2,}(?:[\s-][a-zà-üA-ZÀ-Ü]?[a-zà-ü]+)*)\s+.*(?:terrain|parcelle|maison|construire)/ui', $message, $m)) {
+        $ville = trim($m[1]);
+        $excluded = ['je', 'un', 'une', 'le', 'la', 'les', 'des', 'mon', 'trouver', 'chercher', 'cherche', 'avoir', 'quel', 'quelle', 'quels'];
         if (!in_array(mb_strtolower($ville), $excluded) && mb_strlen($ville) >= 3) {
             $criteria['ville'] = $ville;
         }
