@@ -153,6 +153,12 @@ function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
         $cols = ['*'];
         $orderBy = !empty($config['col_price']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $config['col_price']) . ' ASC' : '1';
 
+        // Compter le total
+        $countSql = "SELECT COUNT(*) FROM $table $whereClause";
+        $countStmt = $extPdo->prepare($countSql);
+        $countStmt->execute($params);
+        $totalCount = (int) $countStmt->fetchColumn();
+
         $sql = "SELECT * FROM $table $whereClause ORDER BY $orderBy LIMIT 6";
         $stmt = $extPdo->prepare($sql);
         $stmt->execute($params);
@@ -178,53 +184,59 @@ function chatbotSearchProducts($chatbot_id, $productType, $criteria = []) {
             $results = $stmt2->fetchAll();
         }
 
-        return $results;
+        return ['results' => $results, 'total' => $totalCount];
     } catch (Exception $e) {
         error_log('FrenchyBot product search error: ' . $e->getMessage());
-        return [];
+        return ['results' => [], 'total' => 0];
     }
 }
 
 /**
  * Formater les resultats generiques
  */
-function chatbotFormatProducts($results, $config, $budget = 0) {
+function chatbotFormatProducts($results, $config, $budget = 0, $totalCount = 0) {
+    $label = $config['label'] ?? 'produits';
+
     if (empty($results)) {
-        $label = $config['label'] ?? 'produits';
         return "Aucun(e) $label disponible pour ces criteres actuellement.\n\nLaissez vos coordonnees et un conseiller vous contactera !";
     }
 
-    $label = $config['label'] ?? 'Resultats';
     $colName = $config['col_name'] ?? '';
     $colPrice = $config['col_price'] ?? '';
-    $colDescription = $config['col_description'] ?? '';
     $colLocation = $config['col_location'] ?? '';
     $colSurface = $config['col_surface'] ?? '';
     $colExtra = $config['col_extra'] ?? [];
 
-    $text = "**" . count($results) . " " . $label . " disponible(s) :**\n\n";
+    $total = $totalCount ?: count($results);
+    $shown = min(count($results), 4);
 
-    foreach ($results as $r) {
+    if ($total > $shown) {
+        $text = "🔥 **" . $total . " " . $label . " disponible(s) !** Voici quelques exemples :\n\n";
+    } else {
+        $text = "🔍 **" . $total . " " . $label . " trouve(s) :**\n\n";
+    }
+
+    foreach (array_slice($results, 0, 4) as $r) {
         $name = $colName && isset($r[$colName]) ? $r[$colName] : 'Produit';
-        $text .= "**$name**";
+        $text .= "• **$name**";
 
         $details = [];
-        if ($colSurface && !empty($r[$colSurface])) $details[] = $r[$colSurface] . 'm2';
+        if ($colSurface && !empty($r[$colSurface])) $details[] = $r[$colSurface] . 'm²';
         if ($colLocation && !empty($r[$colLocation])) $details[] = $r[$colLocation];
         foreach ($colExtra as $extraCol) {
             if (!empty($r[$extraCol])) $details[] = $r[$extraCol];
         }
         if (!empty($details)) $text .= " — " . implode(', ', $details);
-        $text .= "\n";
 
         if ($colPrice && !empty($r[$colPrice])) {
-            $prix = number_format((float)$r[$colPrice], 0, ',', ' ') . ' EUR';
-            $text .= "→ $prix\n";
-        }
-        if ($colDescription && !empty($r[$colDescription])) {
-            $text .= "*" . mb_substr($r[$colDescription], 0, 80) . "*\n";
+            $prix = number_format((float)$r[$colPrice], 0, ',', ' ') . ' €';
+            $text .= " → $prix";
         }
         $text .= "\n";
+    }
+
+    if ($total > $shown) {
+        $text .= "\n... et **" . ($total - $shown) . " autres** !\n";
     }
 
     return $text;

@@ -415,7 +415,9 @@ function handleSmartSearchMaison($cid, $criteria, $scenario) {
 function handleGenericProductSearch($cid, $criteria, $productConfig) {
     global $chatbot_id;
 
-    $results = chatbotSearchProducts($chatbot_id, $productConfig['type'], $criteria);
+    $search = chatbotSearchProducts($chatbot_id, $productConfig['type'], $criteria);
+    $results = $search['results'];
+    $totalCount = $search['total'];
     $budget = intval($criteria['budget'] ?? 0);
     $text = '';
 
@@ -423,17 +425,17 @@ function handleGenericProductSearch($cid, $criteria, $productConfig) {
     $understood = [];
     if (!empty($criteria['ville'])) $understood[] = $criteria['ville'];
     if (!empty($criteria['departement'])) $understood[] = 'departement ' . $criteria['departement'];
-    if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm2';
-    if ($budget > 0) $understood[] = number_format($budget, 0, ',', ' ') . ' EUR';
+    if (!empty($criteria['surface'])) $understood[] = $criteria['surface'] . 'm²';
+    if ($budget > 0) $understood[] = number_format($budget, 0, ',', ' ') . ' €';
     if (!empty($criteria['nb_chambres'])) $understood[] = $criteria['nb_chambres'] . ' chambres';
     if (!empty($criteria['type_maison'])) $understood[] = $criteria['type_maison'];
 
     if (!empty($understood)) {
-        $text .= "J'ai compris : **" . implode(', ', $understood) . "**\n\n";
+        $text .= "🔍 J'ai compris : **" . implode(', ', $understood) . "**\n\n";
     }
 
-    $text .= chatbotFormatProducts($results, $productConfig, $budget);
-    $text .= "\n**Laissez vos coordonnees pour plus de details !**";
+    $text .= chatbotFormatProducts($results, $productConfig, $budget, $totalCount);
+    $text .= "\n**Laissez vos coordonnees et un conseiller vous enverra la liste complete !**";
 
     chatbotSaveMessage($cid, 'bot', $text);
     chatbotUpdateStep($cid, 50);
@@ -441,7 +443,7 @@ function handleGenericProductSearch($cid, $criteria, $productConfig) {
         'step' => 50,
         'type' => 'results_then_form',
         'message' => $text,
-        'results_count' => count($results)
+        'results_count' => $totalCount
     ]);
 }
 
