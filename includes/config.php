@@ -14,7 +14,7 @@ if (!defined('FRENCHYBOT') && basename($_SERVER['PHP_SELF']) === 'config.php') {
 // ============================================
 
 define('FB_VERSION', '1.0.0');
-define('FB_BASE_URL', 'https://bot.frenchycompany.fr');
+define('FB_BASE_URL', 'http://bot.frenchycompany.fr');
 define('FB_ROOT', dirname(__DIR__));
 
 // BDD
