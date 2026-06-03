@@ -288,6 +288,7 @@ $ogUrl = FB_BASE_URL . '/api/v1/iframe.php?token=' . urlencode($token) . '&mode=
             clearChips();
             showTyping();
 
+            ensureInit(function() {
             post('action=message&token=' + encodeURIComponent(token) + '&conversation_id=' + chatId + '&message=' + encodeURIComponent(val), function(d) {
                 hideTyping();
                 if (d.error) { addMsg(d.error, 'bot'); return; }
@@ -309,6 +310,7 @@ $ogUrl = FB_BASE_URL . '/api/v1/iframe.php?token=' . urlencode($token) . '&mode=
                     showChips(d.options);
                 }
             });
+            }); // ensureInit
         }
 
         function addMsg(text, type) {
@@ -424,20 +426,26 @@ $ogUrl = FB_BASE_URL . '/api/v1/iframe.php?token=' . urlencode($token) . '&mode=
             x.send(body);
         }
 
-        // Init
-        showTyping();
-        post('action=init&token=' + encodeURIComponent(token), function(d) {
-            hideTyping();
-            if (d.error) { addMsg(d.error, 'bot'); return; }
-            chatId = d.conversation_id;
-            currentStep = d.step || 1;
-            if (d.is_new) {
-                addMsg(d.message, 'bot');
-                if (d.options) showChips(d.options);
-            } else if (d.history && d.history.length) {
-                d.history.forEach(function(m) { addMsg(m.message, m.type); });
-            }
-        });
+        // Show welcome message locally (no API call yet)
+        var welcomeMsg = <?= json_encode($chatbot['welcome_message'] ?: 'Bonjour ! Comment puis-je vous aider ?') ?>;
+        addMsg(welcomeMsg, 'bot');
+        showChips([
+            {label: 'Une maison', value: 'go_maison', next: 10},
+            {label: 'Un terrain', value: 'go_terrain', next: 20},
+            {label: 'Les prix', value: 'go_prix', next: 30},
+            {label: 'Une question', value: 'go_question', next: 40}
+        ]);
+
+        // Init API only on first user interaction
+        function ensureInit(cb) {
+            if (chatId) { cb(); return; }
+            post('action=init&token=' + encodeURIComponent(token), function(d) {
+                if (d.error) { addMsg(d.error, 'bot'); return; }
+                chatId = d.conversation_id;
+                currentStep = d.step || 1;
+                cb();
+            });
+        }
     })();
     </script>
 </body>

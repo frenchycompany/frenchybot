@@ -368,7 +368,7 @@ $page = $_GET['p'] ?? 'home';
             <h2 class="section-title">Testez en direct</h2>
             <p class="section-subtitle">Ce chatbot est connecte a une vraie base de donnees de terrains. Essayez !</p>
             <div style="max-width:500px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.15);">
-                <iframe src="https://bot.frenchycompany.fr/api/v1/iframe.php?token=83059f1ffd4adf64a5ef5e9a803dd1d2" width="100%" height="550" style="border:none;"></iframe>
+                <iframe src="https://bot.frenchycompany.fr/api/v1/iframe.php?token=83059f1ffd4adf64a5ef5e9a803dd1d2" width="100%" height="550" style="border:none;" loading="lazy"></iframe>
             </div>
         </div>
     </div>
